@@ -1,0 +1,3665 @@
+Berdasarkan pemahaman tersebut, tolong tambahkan file" atau kode yang belum ditambahkan, karena saya melihat migration ada quiz dan question tapi di websitenya tidak ada, lalu pada dashboard admin user management, role management, verify account dan lainnya belum ada halamannya dan kekurangan lainnya.
+Jadi saya mau :
+1.di setiap module ada quiz dan questionnya pilihan ganda yang admin/guru dapat menambahkannya, edit dan hapus soalnya, misal ada 5 soal dan student hanya benar menjawab kurang dari 50% maka dia harus mengulang quiz/questionnya 5 menit yang diharapkan bisa belajar ulang lebih serius lagi, kemudian jika admin/teacher sudah membuat semua modul yang diinginkan, maka di akhirnya ada final tes/project yang bisa dibuat juga, nanti ada nama final testm deskripsi, attachment yang bisa di download dan deadlinenya, kemudian jika student sudah selesai bisa kirim hasilnya berupa file atau dokumen di modul final project tersebut dan ada status diproses, selesai, nanti admin/teacher bisa beri nilainya dan merubah status menjadi selesai dengan nilainya berapa.
+2.Buat role expert sama seperti student bisa akses website tanpa bisa membuat course/module  
+Note :
+1.Jangan generate di artifact 
+2.Berikan lengkap kodenya tanpa ada komentar dan tidak hanya sebagian saja kodenya yang diberikan, tapi berikan lengkap jika ada file yang diperbaikiEditMerancang fitur quiz, final project, dan manajemen admin7sUser ingin saya menambahkan fitur-fitur yang belum ada berdasarkan migration yang sudah tersedia tapi tidak diimplementasikan. Saya perlu:
+
+Quiz & Question System:
+
+Controller untuk Quiz dan Question
+Views untuk create, edit, delete quiz dan question
+System untuk mengerjakan quiz dengan batasan waktu
+Logic untuk mengulang quiz jika nilai kurang dari 50%
+Final Test/Project system dengan file upload dan grading
+
+
+Admin Management:
+
+User management (CRUD users)
+Role management
+Verify accounts
+Other admin features
+
+
+Role Expert:
+
+Ubah role expert menjadi seperti student, tidak bisa create course
+
+
+
+Mari saya buat file-file yang diperlukan:
+
+Controllers:
+
+QuizController
+QuestionController
+FinalProjectController
+Admin/UserController
+Admin/AdminController (enhanced)
+
+
+Models:
+
+Quiz (sudah ada tapi mungkin perlu update)
+Question (sudah ada tapi mungkin perlu update)
+QuizAttempt (baru)
+FinalProject (baru)
+FinalProjectSubmission (baru)
+
+
+Migrations:
+
+quiz_attempts
+final_projects
+final_project_submissions
+
+
+Views:
+
+Quiz management views
+Question management views
+Final project views
+Admin user management views
+Quiz taking interface
+
+
+Routes updates
+Model relationships updates
+
+Let me start creating these files systematically.Baik, saya akan menambahkan semua fitur yang kurang. Berikut adalah file-file yang perlu ditambahkan dan diperbaiki:
+1. Migration untuk Quiz Attempts, Final Projects
+database/migrations/2025_06_04_120000_create_quiz_attempts_table.php
+php<?php
+
+use Illuminate\Database\Migrations\Migration;
+use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\Schema;
+
+return new class extends Migration
+{
+    public function up(): void
+    {
+        Schema::create('quiz_attempts', function (Blueprint $table) {
+            $table->id();
+            $table->foreignId('user_id')->constrained()->onDelete('cascade');
+            $table->foreignId('quiz_id')->constrained()->onDelete('cascade');
+            $table->json('answers');
+            $table->integer('score');
+            $table->integer('total_questions');
+            $table->boolean('passed')->default(false);
+            $table->timestamp('started_at');
+            $table->timestamp('completed_at')->nullable();
+            $table->timestamps();
+        });
+    }
+
+    public function down(): void
+    {
+        Schema::dropIfExists('quiz_attempts');
+    }
+};
+database/migrations/2025_06_04_120001_create_final_projects_table.php
+php<?php
+
+use Illuminate\Database\Migrations\Migration;
+use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\Schema;
+
+return new class extends Migration
+{
+    public function up(): void
+    {
+        Schema::create('final_projects', function (Blueprint $table) {
+            $table->id();
+            $table->string('title');
+            $table->text('description');
+            $table->foreignId('course_id')->constrained()->onDelete('cascade');
+            $table->json('attachments')->nullable();
+            $table->timestamp('deadline');
+            $table->boolean('is_active')->default(true);
+            $table->timestamps();
+        });
+    }
+
+    public function down(): void
+    {
+        Schema::dropIfExists('final_projects');
+    }
+};
+database/migrations/2025_06_04_120002_create_final_project_submissions_table.php
+php<?php
+
+use Illuminate\Database\Migrations\Migration;
+use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\Schema;
+
+return new class extends Migration
+{
+    public function up(): void
+    {
+        Schema::create('final_project_submissions', function (Blueprint $table) {
+            $table->id();
+            $table->foreignId('final_project_id')->constrained()->onDelete('cascade');
+            $table->foreignId('user_id')->constrained()->onDelete('cascade');
+            $table->text('notes')->nullable();
+            $table->json('attachments');
+            $table->enum('status', ['pending', 'graded'])->default('pending');
+            $table->integer('score')->nullable();
+            $table->text('feedback')->nullable();
+            $table->timestamp('graded_at')->nullable();
+            $table->foreignId('graded_by')->nullable()->constrained('users');
+            $table->timestamps();
+        });
+    }
+
+    public function down(): void
+    {
+        Schema::dropIfExists('final_project_submissions');
+    }
+};
+2. Models
+app/Models/QuizAttempt.php
+php<?php
+
+namespace App\Models;
+
+use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\Model;
+
+class QuizAttempt extends Model
+{
+    use HasFactory;
+
+    protected $fillable = [
+        'user_id',
+        'quiz_id',
+        'answers',
+        'score',
+        'total_questions',
+        'passed',
+        'started_at',
+        'completed_at',
+    ];
+
+    protected function casts(): array
+    {
+        return [
+            'answers' => 'array',
+            'passed' => 'boolean',
+            'started_at' => 'datetime',
+            'completed_at' => 'datetime',
+        ];
+    }
+
+    public function user()
+    {
+        return $this->belongsTo(User::class);
+    }
+
+    public function quiz()
+    {
+        return $this->belongsTo(Quiz::class);
+    }
+
+    public function getPercentageAttribute()
+    {
+        return round(($this->score / $this->total_questions) * 100, 2);
+    }
+}
+app/Models/FinalProject.php
+php<?php
+
+namespace App\Models;
+
+use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\Model;
+
+class FinalProject extends Model
+{
+    use HasFactory;
+
+    protected $fillable = [
+        'title',
+        'description',
+        'course_id',
+        'attachments',
+        'deadline',
+        'is_active',
+    ];
+
+    protected function casts(): array
+    {
+        return [
+            'attachments' => 'array',
+            'deadline' => 'datetime',
+            'is_active' => 'boolean',
+        ];
+    }
+
+    public function course()
+    {
+        return $this->belongsTo(Course::class);
+    }
+
+    public function submissions()
+    {
+        return $this->hasMany(FinalProjectSubmission::class);
+    }
+
+    public function getSubmissionByUser($userId)
+    {
+        return $this->submissions()->where('user_id', $userId)->first();
+    }
+}
+app/Models/FinalProjectSubmission.php
+php<?php
+
+namespace App\Models;
+
+use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\Model;
+
+class FinalProjectSubmission extends Model
+{
+    use HasFactory;
+
+    protected $fillable = [
+        'final_project_id',
+        'user_id',
+        'notes',
+        'attachments',
+        'status',
+        'score',
+        'feedback',
+        'graded_at',
+        'graded_by',
+    ];
+
+    protected function casts(): array
+    {
+        return [
+            'attachments' => 'array',
+            'graded_at' => 'datetime',
+        ];
+    }
+
+    public function finalProject()
+    {
+        return $this->belongsTo(FinalProject::class);
+    }
+
+    public function user()
+    {
+        return $this->belongsTo(User::class);
+    }
+
+    public function grader()
+    {
+        return $this->belongsTo(User::class, 'graded_by');
+    }
+}
+3. Update Models yang ada
+app/Models/User.php (Update)
+php<?php
+
+namespace App\Models;
+
+use Illuminate\Contracts\Auth\MustVerifyEmail;
+use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Foundation\Auth\User as Authenticatable;
+use Illuminate\Notifications\Notifiable;
+
+class User extends Authenticatable implements MustVerifyEmail
+{
+    use HasFactory, Notifiable;
+
+    protected $fillable = [
+        'name',
+        'email',
+        'password',
+        'role',
+        'avatar',
+        'bio',
+        'institution',
+        'level',
+        'is_verified',
+        'points',
+    ];
+
+    protected $hidden = [
+        'password',
+        'remember_token',
+    ];
+
+    protected function casts(): array
+    {
+        return [
+            'email_verified_at' => 'datetime',
+            'password' => 'hashed',
+            'is_verified' => 'boolean',
+        ];
+    }
+
+    public function courses()
+    {
+        return $this->hasMany(Course::class, 'instructor_id');
+    }
+
+    public function enrollments()
+    {
+        return $this->belongsToMany(Course::class, 'user_progress')
+                    ->withPivot(['progress_percentage', 'is_completed', 'completed_at', 'time_spent'])
+                    ->withTimestamps();
+    }
+
+    public function forumThreads()
+    {
+        return $this->hasMany(ForumThread::class);
+    }
+
+    public function forumReplies()
+    {
+        return $this->hasMany(ForumReply::class);
+    }
+
+    public function homework()
+    {
+        return $this->hasMany(Homework::class, 'student_id');
+    }
+
+    public function homeworkAnswers()
+    {
+        return $this->hasMany(HomeworkAnswer::class, 'teacher_id');
+    }
+
+    public function quizAttempts()
+    {
+        return $this->hasMany(QuizAttempt::class);
+    }
+
+    public function finalProjectSubmissions()
+    {
+        return $this->hasMany(FinalProjectSubmission::class);
+    }
+
+    public function isTeacher()
+    {
+        return in_array($this->role, ['teacher', 'moderator', 'admin']);
+    }
+
+    public function isModerator()
+    {
+        return in_array($this->role, ['moderator', 'admin']);
+    }
+
+    public function isAdmin()
+    {
+        return $this->role === 'admin';
+    }
+
+    public function getAvatarUrlAttribute()
+    {
+        return $this->avatar ? asset('storage/' . $this->avatar) : asset('images/default-avatar.png');
+    }
+}
+app/Models/Course.php (Update)
+php<?php
+namespace App\Models;
+
+use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\Model;
+use Illuminate\Support\Str;
+
+class Course extends Model
+{
+    use HasFactory;
+
+    protected $fillable = [
+        'title',
+        'description',
+        'slug',
+        'category',
+        'level',
+        'thumbnail',
+        'instructor_id',
+        'is_active',
+        'price',
+        'duration_minutes',
+    ];
+
+    protected function casts(): array
+    {
+        return [
+            'is_active' => 'boolean',
+            'price' => 'decimal:2',
+        ];
+    }
+
+    protected static function boot()
+    {
+        parent::boot();
+        
+        static::creating(function ($course) {
+            if (empty($course->slug)) {
+                $course->slug = Str::slug($course->title);
+            }
+        });
+    }
+
+    public function instructor()
+    {
+        return $this->belongsTo(User::class);
+    }
+
+    public function modules()
+    {
+        return $this->hasMany(Module::class)->orderBy('order');
+    }
+
+    public function students()
+    {
+        return $this->belongsToMany(User::class, 'user_progress')
+                    ->withPivot(['progress_percentage', 'is_completed', 'completed_at', 'time_spent'])
+                    ->withTimestamps();
+    }
+
+    public function homework()
+    {
+        return $this->hasMany(Homework::class);
+    }
+
+    public function finalProjects()
+    {
+        return $this->hasMany(FinalProject::class);
+    }
+
+    public function getThumbnailUrlAttribute()
+    {
+        return $this->thumbnail ? asset('storage/' . $this->thumbnail) : asset('images/default-course.png');
+    }
+
+    public function getFormattedPriceAttribute()
+    {
+        return $this->price > 0 ? 'Rp ' . number_format($this->price, 0, ',', '.') : 'Gratis';
+    }
+}
+4. Controllers
+app/Http/Controllers/QuizController.php
+php<?php
+
+namespace App\Http\Controllers;
+
+use App\Models\Quiz;
+use App\Models\QuizAttempt;
+use App\Models\Module;
+use App\Models\Question;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
+
+class QuizController extends Controller
+{
+    public function create($courseSlug, $moduleId)
+    {
+        $module = Module::with('course')->findOrFail($moduleId);
+        
+        if ($module->course->instructor_id !== auth()->id() && !auth()->user()->isAdmin()) {
+            abort(403);
+        }
+        
+        return view('quizzes.create', compact('module'));
+    }
+
+    public function store(Request $request, $courseSlug, $moduleId)
+    {
+        $module = Module::with('course')->findOrFail($moduleId);
+        
+        if ($module->course->instructor_id !== auth()->id() && !auth()->user()->isAdmin()) {
+            abort(403);
+        }
+
+        $validated = $request->validate([
+            'title' => 'required|string|max:255',
+            'description' => 'nullable|string',
+            'time_limit' => 'required|integer|min:1',
+            'passing_score' => 'required|integer|min:1|max:100',
+            'max_attempts' => 'required|integer|min:1',
+            'is_active' => 'boolean',
+        ]);
+
+        $validated['module_id'] = $moduleId;
+        $validated['is_active'] = $request->has('is_active');
+
+        Quiz::create($validated);
+
+        return redirect()->route('modules.show', [$courseSlug, $moduleId])
+                        ->with('success', 'Quiz created successfully!');
+    }
+
+    public function show($courseSlug, $moduleId, $quizId)
+    {
+        $quiz = Quiz::with(['module.course', 'questions'])
+                   ->findOrFail($quizId);
+
+        $userAttempts = QuizAttempt::where('user_id', auth()->id())
+                                  ->where('quiz_id', $quizId)
+                                  ->orderBy('created_at', 'desc')
+                                  ->get();
+
+        $canTakeQuiz = $userAttempts->count() < $quiz->max_attempts;
+        $lastAttempt = $userAttempts->first();
+
+        if ($lastAttempt && !$lastAttempt->passed && $lastAttempt->completed_at) {
+            $waitTime = $lastAttempt->completed_at->addMinutes(5);
+            $canTakeQuiz = $canTakeQuiz && now()->gte($waitTime);
+        }
+
+        return view('quizzes.show', compact('quiz', 'userAttempts', 'canTakeQuiz', 'lastAttempt'));
+    }
+
+    public function take($courseSlug, $moduleId, $quizId)
+    {
+        $quiz = Quiz::with(['module.course', 'questions'])
+                   ->findOrFail($quizId);
+
+        $userAttempts = QuizAttempt::where('user_id', auth()->id())
+                                  ->where('quiz_id', $quizId)
+                                  ->count();
+
+        if ($userAttempts >= $quiz->max_attempts) {
+            return redirect()->back()->with('error', 'Maximum attempts reached.');
+        }
+
+        $lastAttempt = QuizAttempt::where('user_id', auth()->id())
+                                 ->where('quiz_id', $quizId)
+                                 ->latest()
+                                 ->first();
+
+        if ($lastAttempt && !$lastAttempt->passed && $lastAttempt->completed_at) {
+            $waitTime = $lastAttempt->completed_at->addMinutes(5);
+            if (now()->lt($waitTime)) {
+                $remainingTime = $waitTime->diffInMinutes(now());
+                return redirect()->back()->with('error', "You must wait {$remainingTime} minutes before retaking the quiz.");
+            }
+        }
+
+        $questions = $quiz->questions()->inRandomOrder()->get();
+
+        return view('quizzes.take', compact('quiz', 'questions'));
+    }
+
+    public function submit(Request $request, $courseSlug, $moduleId, $quizId)
+    {
+        $quiz = Quiz::with('questions')->findOrFail($quizId);
+
+        $validated = $request->validate([
+            'answers' => 'required|array',
+            'started_at' => 'required|date',
+        ]);
+
+        $startTime = \Carbon\Carbon::parse($validated['started_at']);
+        $timeSpent = now()->diffInMinutes($startTime);
+
+        if ($timeSpent > $quiz->time_limit) {
+            return redirect()->route('quizzes.show', [$courseSlug, $moduleId, $quizId])
+                           ->with('error', 'Time limit exceeded.');
+        }
+
+        $score = 0;
+        $totalQuestions = $quiz->questions->count();
+
+        foreach ($quiz->questions as $question) {
+            if (isset($validated['answers'][$question->id])) {
+                $userAnswer = $validated['answers'][$question->id];
+                if ($userAnswer === $question->correct_answer) {
+                    $score++;
+                }
+            }
+        }
+
+        $percentage = ($score / $totalQuestions) * 100;
+        $passed = $percentage >= $quiz->passing_score;
+
+        QuizAttempt::create([
+            'user_id' => auth()->id(),
+            'quiz_id' => $quizId,
+            'answers' => $validated['answers'],
+            'score' => $score,
+            'total_questions' => $totalQuestions,
+            'passed' => $passed,
+            'started_at' => $startTime,
+            'completed_at' => now(),
+        ]);
+
+        $message = $passed ? 'Quiz completed successfully!' : 'Quiz failed. You need to score at least ' . $quiz->passing_score . '% to pass.';
+
+        return redirect()->route('quizzes.show', [$courseSlug, $moduleId, $quizId])
+                        ->with($passed ? 'success' : 'error', $message);
+    }
+
+    public function edit($courseSlug, $moduleId, $quizId)
+    {
+        $quiz = Quiz::with('module.course')->findOrFail($quizId);
+        
+        if ($quiz->module->course->instructor_id !== auth()->id() && !auth()->user()->isAdmin()) {
+            abort(403);
+        }
+        
+        return view('quizzes.edit', compact('quiz'));
+    }
+
+    public function update(Request $request, $courseSlug, $moduleId, $quizId)
+    {
+        $quiz = Quiz::with('module.course')->findOrFail($quizId);
+        
+        if ($quiz->module->course->instructor_id !== auth()->id() && !auth()->user()->isAdmin()) {
+            abort(403);
+        }
+
+        $validated = $request->validate([
+            'title' => 'required|string|max:255',
+            'description' => 'nullable|string',
+            'time_limit' => 'required|integer|min:1',
+            'passing_score' => 'required|integer|min:1|max:100',
+            'max_attempts' => 'required|integer|min:1',
+            'is_active' => 'boolean',
+        ]);
+
+        $validated['is_active'] = $request->has('is_active');
+
+        $quiz->update($validated);
+
+        return redirect()->route('modules.show', [$courseSlug, $moduleId])
+                        ->with('success', 'Quiz updated successfully!');
+    }
+
+    public function destroy($courseSlug, $moduleId, $quizId)
+    {
+        $quiz = Quiz::with('module.course')->findOrFail($quizId);
+        
+        if ($quiz->module->course->instructor_id !== auth()->id() && !auth()->user()->isAdmin()) {
+            abort(403);
+        }
+
+        $quiz->delete();
+
+        return redirect()->route('modules.show', [$courseSlug, $moduleId])
+                        ->with('success', 'Quiz deleted successfully!');
+    }
+}
+app/Http/Controllers/QuestionController.php
+php<?php
+
+namespace App\Http\Controllers;
+
+use App\Models\Question;
+use App\Models\Quiz;
+use Illuminate\Http\Request;
+
+class QuestionController extends Controller
+{
+    public function create($courseSlug, $moduleId, $quizId)
+    {
+        $quiz = Quiz::with('module.course')->findOrFail($quizId);
+        
+        if ($quiz->module->course->instructor_id !== auth()->id() && !auth()->user()->isAdmin()) {
+            abort(403);
+        }
+        
+        return view('questions.create', compact('quiz'));
+    }
+
+    public function store(Request $request, $courseSlug, $moduleId, $quizId)
+    {
+        $quiz = Quiz::with('module.course')->findOrFail($quizId);
+        
+        if ($quiz->module->course->instructor_id !== auth()->id() && !auth()->user()->isAdmin()) {
+            abort(403);
+        }
+
+        $validated = $request->validate([
+            'question' => 'required|string',
+            'type' => 'required|in:multiple_choice,true_false',
+            'options' => 'required_if:type,multiple_choice|array|min:2',
+            'correct_answer' => 'required|string',
+            'explanation' => 'nullable|string',
+            'points' => 'required|integer|min:1',
+        ]);
+
+        if ($validated['type'] === 'true_false') {
+            $validated['options'] = ['True', 'False'];
+        }
+
+        $validated['quiz_id'] = $quizId;
+
+        Question::create($validated);
+
+        return redirect()->route('quizzes.show', [$courseSlug, $moduleId, $quizId])
+                        ->with('success', 'Question created successfully!');
+    }
+
+    public function edit($courseSlug, $moduleId, $quizId, $questionId)
+    {
+        $question = Question::with('quiz.module.course')->findOrFail($questionId);
+        
+        if ($question->quiz->module->course->instructor_id !== auth()->id() && !auth()->user()->isAdmin()) {
+            abort(403);
+        }
+        
+        return view('questions.edit', compact('question'));
+    }
+
+    public function update(Request $request, $courseSlug, $moduleId, $quizId, $questionId)
+    {
+        $question = Question::with('quiz.module.course')->findOrFail($questionId);
+        
+        if ($question->quiz->module->course->instructor_id !== auth()->id() && !auth()->user()->isAdmin()) {
+            abort(403);
+        }
+
+        $validated = $request->validate([
+            'question' => 'required|string',
+            'type' => 'required|in:multiple_choice,true_false',
+            'options' => 'required_if:type,multiple_choice|array|min:2',
+            'correct_answer' => 'required|string',
+            'explanation' => 'nullable|string',
+            'points' => 'required|integer|min:1',
+        ]);
+
+        if ($validated['type'] === 'true_false') {
+            $validated['options'] = ['True', 'False'];
+        }
+
+        $question->update($validated);
+
+        return redirect()->route('quizzes.show', [$courseSlug, $moduleId, $quizId])
+                        ->with('success', 'Question updated successfully!');
+    }
+
+    public function destroy($courseSlug, $moduleId, $quizId, $questionId)
+    {
+        $question = Question::with('quiz.module.course')->findOrFail($questionId);
+        
+        if ($question->quiz->module->course->instructor_id !== auth()->id() && !auth()->user()->isAdmin()) {
+            abort(403);
+        }
+
+        $question->delete();
+
+        return redirect()->route('quizzes.show', [$courseSlug, $moduleId, $quizId])
+                        ->with('success', 'Question deleted successfully!');
+    }
+}
+app/Http/Controllers/FinalProjectController.php
+php<?php
+
+namespace App\Http\Controllers;
+
+use App\Models\FinalProject;
+use App\Models\FinalProjectSubmission;
+use App\Models\Course;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Storage;
+
+class FinalProjectController extends Controller
+{
+    public function create($courseSlug)
+    {
+        $course = Course::where('slug', $courseSlug)->firstOrFail();
+        
+        if ($course->instructor_id !== auth()->id() && !auth()->user()->isAdmin()) {
+            abort(403);
+        }
+        
+        return view('final-projects.create', compact('course'));
+    }
+
+    public function store(Request $request, $courseSlug)
+    {
+        $course = Course::where('slug', $courseSlug)->firstOrFail();
+        
+        if ($course->instructor_id !== auth()->id() && !auth()->user()->isAdmin()) {
+            abort(403);
+        }
+
+        $validated = $request->validate([
+            'title' => 'required|string|max:255',
+            'description' => 'required|string',
+            'deadline' => 'required|date|after:now',
+            'attachments' => 'nullable|array',
+            'attachments.*' => 'file|max:10240',
+            'is_active' => 'boolean',
+        ]);
+
+        $attachmentPaths = [];
+        if ($request->hasFile('attachments')) {
+            foreach ($request->file('attachments') as $file) {
+                $path = $file->store('final-project-attachments', 'public');
+                $attachmentPaths[] = [
+                    'name' => $file->getClientOriginalName(),
+                    'path' => $path,
+                    'size' => $file->getSize(),
+                ];
+            }
+        }
+
+        $validated['course_id'] = $course->id;
+        $validated['attachments'] = $attachmentPaths;
+        $validated['is_active'] = $request->has('is_active');
+
+        FinalProject::create($validated);
+
+        return redirect()->route('courses.show', $courseSlug)
+                        ->with('success', 'Final project created successfully!');
+    }
+
+    public function show($courseSlug, $finalProjectId)
+    {
+        $finalProject = FinalProject::with('course')->findOrFail($finalProjectId);
+        $submission = null;
+        
+        if (auth()->check()) {
+            $submission = $finalProject->getSubmissionByUser(auth()->id());
+        }
+
+        return view('final-projects.show', compact('finalProject', 'submission'));
+    }
+
+    public function submit(Request $request, $courseSlug, $finalProjectId)
+    {
+        $finalProject = FinalProject::findOrFail($finalProjectId);
+
+        $existingSubmission = $finalProject->getSubmissionByUser(auth()->id());
+        if ($existingSubmission) {
+            return redirect()->back()->with('error', 'You have already submitted this project.');
+        }
+
+        $validated = $request->validate([
+            'notes' => 'nullable|string',
+            'attachments' => 'required|array',
+            'attachments.*' => 'file|max:10240',
+        ]);
+
+        $attachmentPaths = [];
+        foreach ($request->file('attachments') as $file) {
+            $path = $file->store('final-project-submissions', 'public');
+            $attachmentPaths[] = [
+                'name' => $file->getClientOriginalName(),
+                'path' => $path,
+                'size' => $file->getSize(),
+            ];
+        }
+
+        FinalProjectSubmission::create([
+            'final_project_id' => $finalProjectId,
+            'user_id' => auth()->id(),
+            'notes' => $validated['notes'],
+            'attachments' => $attachmentPaths,
+            'status' => 'pending',
+        ]);
+
+        return redirect()->back()->with('success', 'Project submitted successfully!');
+    }
+
+    public function grade(Request $request, $courseSlug, $finalProjectId, $submissionId)
+    {
+        $submission = FinalProjectSubmission::with('finalProject.course')
+                                           ->findOrFail($submissionId);
+
+        if ($submission->finalProject->course->instructor_id !== auth()->id() && !auth()->user()->isAdmin()) {
+            abort(403);
+        }
+
+        $validated = $request->validate([
+            'score' => 'required|integer|min:0|max:100',
+            'feedback' => 'nullable|string',
+        ]);
+
+        $submission->update([
+            'score' => $validated['score'],
+            'feedback' => $validated['feedback'],
+            'status' => 'graded',
+            'graded_at' => now(),
+            'graded_by' => auth()->id(),
+        ]);
+
+        return redirect()->back()->with('success', 'Project graded successfully!');
+    }
+
+    public function submissions($courseSlug, $finalProjectId)
+    {
+        $finalProject = FinalProject::with(['course', 'submissions.user'])
+                                   ->findOrFail($finalProjectId);
+
+        if ($finalProject->course->instructor_id !== auth()->id() && !auth()->user()->isAdmin()) {
+            abort(403);
+        }
+
+        return view('final-projects.submissions', compact('finalProject'));
+    }
+
+    public function edit($courseSlug, $finalProjectId)
+    {
+        $finalProject = FinalProject::with('course')->findOrFail($finalProjectId);
+        
+        if ($finalProject->course->instructor_id !== auth()->id() && !auth()->user()->isAdmin()) {
+            abort(403);
+        }
+        
+        return view('final-projects.edit', compact('finalProject'));
+    }
+
+    public function update(Request $request, $courseSlug, $finalProjectId)
+    {
+        $finalProject = FinalProject::with('course')->findOrFail($finalProjectId);
+        
+        if ($finalProject->course->instructor_id !== auth()->id() && !auth()->user()->isAdmin()) {
+            abort(403);
+        }
+
+        $validated = $request->validate([
+            'title' => 'required|string|max:255',
+            'description' => 'required|string',
+            'deadline' => 'required|date',
+            'attachments' => 'nullable|array',
+            'attachments.*' => 'file|max:10240',
+            'is_active' => 'boolean',
+        ]);
+
+        $existingAttachments = $finalProject->attachments ?? [];
+        if ($request->hasFile('attachments')) {
+            foreach ($request->file('attachments') as $file) {
+                $path = $file->store('final-project-attachments', 'public');
+                $existingAttachments[] = [
+                    'name' => $file->getClientOriginalName(),
+                    'path' => $path,
+                    'size' => $file->getSize(),
+                ];
+            }
+        }
+
+        $validated['attachments'] = $existingAttachments;
+        $validated['is_active'] = $request->has('is_active');
+
+        $finalProject->update($validated);
+
+        return redirect()->route('courses.show', $courseSlug)
+                        ->with('success', 'Final project updated successfully!');
+    }
+
+    public function destroy($courseSlug, $finalProjectId)
+    {
+        $finalProject = FinalProject::with('course')->findOrFail($finalProjectId);
+        
+        if ($finalProject->course->instructor_id !== auth()->id() && !auth()->user()->isAdmin()) {
+            abort(403);
+        }
+
+        if ($finalProject->attachments) {
+            foreach ($finalProject->attachments as $attachment) {
+                Storage::disk('public')->delete($attachment['path']);
+            }
+        }
+
+        foreach ($finalProject->submissions as $submission) {
+            if ($submission->attachments) {
+                foreach ($submission->attachments as $attachment) {
+                    Storage::disk('public')->delete($attachment['path']);
+                }
+            }
+        }
+
+        $finalProject->delete();
+
+        return redirect()->route('courses.show', $courseSlug)
+                        ->with('success', 'Final project deleted successfully!');
+    }
+}
+app/Http/Controllers/Admin/UserController.php
+php<?php
+
+namespace App\Http\Controllers\Admin;
+
+use App\Http\Controllers\Controller;
+use App\Models\User;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Storage;
+
+class UserController extends Controller
+{
+    public function index(Request $request)
+    {
+        $query = User::query();
+
+        if ($request->has('search') && $request->search) {
+            $query->where('name', 'like', '%' . $request->search . '%')
+                  ->orWhere('email', 'like', '%' . $request->search . '%');
+        }
+
+        if ($request->has('role') && $request->role) {
+            $query->where('role', $request->role);
+        }
+
+        if ($request->has('verified') && $request->verified !== '') {
+            $query->where('is_verified', $request->verified);
+        }
+
+        $users = $query->latest()->paginate(15);
+
+        return view('admin.users.index', compact('users'));
+    }
+
+    public function create()
+    {
+        return view('admin.users.create');
+    }
+
+    public function store(Request $request)
+    {
+        $validated = $request->validate([
+            'name' => 'required|string|max:255',
+            'email' => 'required|string|email|max:255|unique:users',
+            'password' => 'required|string|min:8|confirmed',
+            'role' => 'required|in:student,teacher,expert,moderator,admin',
+            'bio' => 'nullable|string|max:1000',
+            'institution' => 'nullable|string|max:255',
+            'level' => 'required|in:beginner,intermediate,advanced',
+            'is_verified' => 'boolean',
+            'avatar' => 'nullable|image|mimes:jpeg,png,jpg,gif|max:2048',
+        ]);
+
+        if ($request->hasFile('avatar')) {
+            $validated['avatar'] = $request->file('avatar')->store('avatars', 'public');
+        }
+
+        $validated['password'] = Hash::make($validated['password']);
+        $validated['is_verified'] = $request->has('is_verified');
+        $validated['email_verified_at'] = $validated['is_verified'] ? now() : null;
+
+        User::create($validated);
+
+        return redirect()->route('admin.users.index')
+                        ->with('success', 'User created successfully!');
+    }
+
+    public function show(User $user)
+    {
+        $user->load(['courses', 'enrollments', 'forumThreads', 'forumReplies']);
+        
+        return view('admin.users.show', compact('user'));
+    }
+
+    public function edit(User $user)
+    {
+        return view('admin.users.edit', compact('user'));
+    }
+
+    public function update(Request $request, User $user)
+    {
+        $validated = $request->validate([
+            'name' => 'required|string|max:255',
+            'email' => 'required|string|email|max:255|unique:users,email,' . $user->id,
+            'role' => 'required|in:student,teacher,expert,moderator,admin',
+            'bio' => 'nullable|string|max:1000',
+            'institution' => 'nullable|string|max:255',
+            'level' => 'required|in:beginner,intermediate,advanced',
+            'is_verified' => 'boolean',
+            'avatar' => 'nullable|image|mimes:jpeg,png,jpg,gif|max:2048',
+        ]);
+
+        if ($request->hasFile('avatar')) {
+            if ($user->avatar) {
+                Storage::disk('public')->delete($user->avatar);
+            }
+            $validated['avatar'] = $request->file('avatar')->store('avatars', 'public');
+        }
+
+        $validated['is_verified'] = $request->has('is_verified');
+        
+        if ($validated['is_verified'] && !$user->email_verified_at) {
+            $validated['email_verified_at'] = now();
+        } elseif (!$validated['is_verified']) {
+            $validated['email_verified_at'] = null;
+        }
+
+        $user->update($validated);
+
+        return redirect()->route('admin.users.index')
+                        ->with('success', 'User updated successfully!');
+    }
+
+    public function destroy(User $user)
+    {
+        if ($user->id === auth()->id()) {
+            return redirect()->back()->with('error', 'You cannot delete your own account.');
+        }
+
+        if ($user->avatar) {
+            Storage::disk('public')->delete($user->avatar);
+        }
+
+        $user->delete();
+
+        return redirect()->route('admin.users.index')
+                        ->with('success', 'User deleted successfully!');
+    }
+
+    public function verify(User $user)
+    {
+        $user->update([
+            'is_verified' => true,
+            'email_verified_at' => now(),
+        ]);
+
+        return redirect()->back()->with('success', 'User verified successfully!');
+    }
+
+    public function unverify(User $user)
+    {
+        $user->update([
+            'is_verified' => false,
+            'email_verified_at' => null,
+        ]);
+
+        return redirect()->back()->with('success', 'User unverified successfully!');
+    }
+
+    public function resetPassword(Request $request, User $user)
+    {
+        $validated = $request->validate([
+            'password' => 'required|string|min:8|confirmed',
+        ]);
+
+        $user->update([
+            'password' => Hash::make($validated['password']),
+        ]);
+
+        return redirect()->back()->with('success', 'Password reset successfully!');
+    }
+}
+5. Views
+resources/views/modules/show.blade.php (Update)
+php<x-app-layout>
+    <x-slot name="title">{{ $module->title }} - {{ config('app.name') }}</x-slot>
+
+    <div class="container py-4">
+        <div class="row">
+            <div class="col-lg-8">
+                <div class="card">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <h4 class="mb-0">{{ $module->title }}</h4>
+                        @if(auth()->check() && (auth()->id() === $module->course->instructor_id || auth()->user()->isAdmin()))
+                            <div class="btn-group">
+                                <a href="{{ route('modules.edit', [$module->course->slug, $module->id]) }}" class="btn btn-outline-secondary btn-sm">Edit</a>
+                                <a href="{{ route('quizzes.create', [$module->course->slug, $module->id]) }}" class="btn btn-primary btn-sm">Add Quiz</a>
+                            </div>
+                        @endif
+                    </div>
+                    <div class="card-body">
+                        @if($module->description)
+                            <p class="text-muted">{{ $module->description }}</p>
+                        @endif
+
+                        @if($module->video_url)
+                            <div class="video-container mb-4">
+                                @if(strpos($module->video_url, 'youtube.com') !== false || strpos($module->video_url, 'youtu.be') !== false)
+                                    @php
+                                        $videoId = '';
+                                        if (strpos($module->video_url, 'youtube.com') !== false) {
+                                            parse_str(parse_url($module->video_url, PHP_URL_QUERY), $params);
+                                            $videoId = $params['v'] ?? '';
+                                        } else {
+                                            $videoId = basename(parse_url($module->video_url, PHP_URL_PATH));
+                                        }
+                                    @endphp
+                                    <iframe width="100%" height="400" src="https://www.youtube.com/embed/{{ $videoId }}" frameborder="0" allowfullscreen></iframe>
+                                @else
+                                    <video controls class="w-100" style="max-height: 400px;">
+                                        <source src="{{ $module->video_url }}" type="video/mp4">
+                                        Your browser does not support the video tag.
+                                    </video>
+                                @endif
+                            </div>
+                        @endif
+
+                        <div class="content">
+                            {!! nl2br(e($module->content)) !!}
+                        </div>
+
+                        @if($module->attachments && count($module->attachments) > 0)
+                            <div class="mt-4">
+                                <h6>Attachments:</h6>
+                                <div class="list-group">
+                                    @foreach($module->attachments as $attachment)
+                                        <div class="list-group-item d-flex justify-content-between align-items-center">
+                                            <div>
+                                                <i class="bi bi-file-earmark me-2"></i>
+                                                {{ $attachment['name'] }}
+                                                <small class="text-muted">({{ number_format($attachment['size'] / 1024, 2) }} KB)</small>
+                                            </div>
+                                            <a href="{{ asset('storage/' . $attachment['path']) }}" target="_blank" class="btn btn-sm btn-outline-primary">
+                                                Download
+                                            </a>
+                                        </div>
+                                    @endforeach
+                                </div>
+                            </div>
+                        @endif
+                    </div>
+                </div>
+
+                @if($module->quizzes->count() > 0)
+                    <div class="card mt-4">
+                        <div class="card-header">
+                            <h5 class="mb-0">Quizzes</h5>
+                        </div>
+                        <div class="card-body">
+                            @foreach($module->quizzes as $quiz)
+                                <div class="d-flex justify-content-between align-items-center p-3 {{ !$loop->last ? 'border-bottom' : '' }}">
+                                    <div>
+                                        <h6 class="mb-1">{{ $quiz->title }}</h6>
+                                        @if($quiz->description)
+                                            <p class="text-muted small mb-1">{{ $quiz->description }}</p>
+                                        @endif
+                                        <small class="text-muted">
+                                            <i class="bi bi-clock me-1"></i>{{ $quiz->time_limit }} minutes
+                                            <span class="mx-2">•</span>
+                                            <i class="bi bi-star me-1"></i>{{ $quiz->passing_score }}% to pass
+                                            <span class="mx-2">•</span>
+                                            <i class="bi bi-arrow-repeat me-1"></i>{{ $quiz->max_attempts }} attempts
+                                        </small>
+                                    </div>
+                                    <div class="btn-group">
+                                        <a href="{{ route('quizzes.show', [$module->course->slug, $module->id, $quiz->id]) }}" class="btn btn-primary btn-sm">
+                                            Take Quiz
+                                        </a>
+                                        @if(auth()->check() && (auth()->id() === $module->course->instructor_id || auth()->user()->isAdmin()))
+                                            <a href="{{ route('quizzes.edit', [$module->course->slug, $module->id, $quiz->id]) }}" class="btn btn-outline-secondary btn-sm">Edit</a>
+                                        @endif
+                                    </div>
+                                </div>
+                            @endforeach
+                        </div>
+                    </div>
+                @endif
+            </div>
+
+            <div class="col-lg-4">
+                <div class="card">
+                    <div class="card-header">
+                        <h6 class="mb-0">Module Info</h6>
+                    </div>
+                    <div class="card-body">
+                        <p><strong>Course:</strong> {{ $module->course->title }}</p>
+                        <p><strong>Duration:</strong> {{ $module->duration_minutes }} minutes</p>
+                        <p><strong>Order:</strong> {{ $module->order }}</p>
+                        <p><strong>Status:</strong> 
+                            <span class="badge bg-{{ $module->is_published ? 'success' : 'warning' }}">
+                                {{ $module->is_published ? 'Published' : 'Draft' }}
+                            </span>
+                        </p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</x-app-layout>
+resources/views/quizzes/create.blade.php
+php<x-app-layout>
+    <x-slot name="title">Create Quiz - {{ config('app.name') }}</x-slot>
+
+    <div class="container py-4">
+        <div class="row justify-content-center">
+            <div class="col-lg-8">
+                <div class="card">
+                    <div class="card-header">
+                        <h4 class="mb-0">Create Quiz for: {{ $module->title }}</h4>
+                    </div>
+                    <div class="card-body">
+                        <form action="{{ route('quizzes.store', [$module->course->slug, $module->id]) }}" method="POST">
+                            @csrf
+                            
+                            <div class="mb-3">
+                                <label for="title" class="form-label">Quiz Title</label>
+                                <input type="text" class="form-control @error('title') is-invalid @enderror" 
+                                       id="title" name="title" value="{{ old('title') }}" required>
+                                @error('title')
+                                    <div class="invalid-feedback">{{ $message }}</div>
+                                @enderror
+                            </div>
+
+                            <div class="mb-3">
+                                <label for="description" class="form-label">Description (Optional)</label>
+                                <textarea class="form-control @error('description') is-invalid @enderror" 
+                                          id="description" name="description" rows="3">{{ old('description') }}</textarea>
+                                @error('description')
+                                    <div class="invalid-feedback">{{ $message }}</div>
+                                @enderror
+                            </div>
+
+                            <div class="row mb-3">
+                                <div class="col-md-4">
+                                    <label for="time_limit" class="form-label">Time Limit (minutes)</label>
+                                    <input type="number" class="form-control @error('time_limit') is-invalid @enderror" 
+                                           id="time_limit" name="time_limit" value="{{ old('time_limit', 15) }}" min="1" required>
+                                    @error('time_limit')
+                                        <div class="invalid-feedback">{{ $message }}</div>
+                                    @enderror
+                                </div>
+                                <div class="col-md-4">
+                                    <label for="passing_score" class="form-label">Passing Score (%)</label>
+                                    <input type="number" class="form-control @error('passing_score') is-invalid @enderror" 
+                                           id="passing_score" name="passing_score" value="{{ old('passing_score', 50) }}" min="1" max="100" required>
+                                    @error('passing_score')
+                                        <div class="invalid-feedback">{{ $message }}</div>
+                                    @enderror
+                                </div>
+                                <div class="col-md-4">
+                                    <label for="max_attempts" class="form-label">Max Attempts</label>
+                                    <input type="number" class="form-control @error('max_attempts') is-invalid @enderror" 
+                                           id="max_attempts" name="max_attempts" value="{{ old('max_attempts', 3) }}" min="1" required>
+                                    @error('max_attempts')
+                                        <div class="invalid-feedback">{{ $message }}</div>
+                                    @enderror
+                                </div>
+                            </div>
+
+                            <div class="mb-3">
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" id="is_active" name="is_active" value="1" 
+                                           {{ old('is_active', true) ? 'checked' : '' }}>
+                                    <label class="form-check-label" for="is_active">
+                                        Quiz is active and available to students
+                                    </label>
+                                </div>
+                            </div>
+
+                            <div class="d-flex justify-content-between">
+                                <a href="{{ route('modules.show', [$module->course->slug, $module->id]) }}" class="btn btn-secondary">
+                                    <i class="bi bi-arrow-left me-2"></i>Cancel
+                                </a>
+                                <button type="submit" class="btn btn-primary">
+                                    <i class="bi bi-check me-2"></i>Create Quiz
+                                </button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</x-app-layout>
+resources/views/quizzes/show.blade.php
+php<x-app-layout>
+    <x-slot name="title">{{ $quiz->title }} - Quiz - {{ config('app.name') }}</x-slot>
+
+    <div class="container py-4">
+        <div class="row">
+            <div class="col-lg-8">
+                <div class="card">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <h4 class="mb-0">{{ $quiz->title }}</h4>
+                        @if(auth()->check() && (auth()->id() === $quiz->module->course->instructor_id || auth()->user()->isAdmin()))
+                            <div class="btn-group">
+                                <a href="{{ route('questions.create', [$quiz->module->course->slug, $quiz->module->id, $quiz->id]) }}" class="btn btn-primary btn-sm">Add Question</a>
+                                <a href="{{ route('quizzes.edit', [$quiz->module->course->slug, $quiz->module->id, $quiz->id]) }}" class="btn btn-outline-secondary btn-sm">Edit Quiz</a>
+                            </div>
+                        @endif
+                    </div>
+                    <div class="card-body">
+                        @if($quiz->description)
+                            <p class="text-muted">{{ $quiz->description }}</p>
+                        @endif
+
+                        <div class="row text-center mb-4">
+                            <div class="col-md-3">
+                                <div class="border-end">
+                                    <i class="bi bi-clock text-primary"></i>
+                                    <div class="fw-bold">{{ $quiz->time_limit }}</div>
+                                    <small class="text-muted">Minutes</small>
+                                </div>
+                            </div>
+                            <div class="col-md-3">
+                                <div class="border-end">
+                                    <i class="bi bi-star text-warning"></i>
+                                    <div class="fw-bold">{{ $quiz->passing_score }}%</div>
+                                    <small class="text-muted">Pass Score</small>
+                                </div>
+                            </div>
+                            <div class="col-md-3">
+                                <div class="border-end">
+                                    <i class="bi bi-arrow-repeat text-info"></i>
+                                    <div class="fw-bold">{{ $quiz->max_attempts }}</div>
+                                    <small class="text-muted">Max Attempts</small>
+                                </div>
+                            </div>
+                            <div class="col-md-3">
+                                <i class="bi bi-question-circle text-success"></i>
+                                <div class="fw-bold">{{ $quiz->questions->count() }}</div>
+                                <small class="text-muted">Questions</small>
+                            </div>
+                        </div>
+
+                        @auth
+                            @if($quiz->questions->count() > 0)
+                                @if($canTakeQuiz)
+                                    @if($lastAttempt && !$lastAttempt->passed)
+                                        <div class="alert alert-warning">
+                                            <strong>Previous Attempt:</strong> You scored {{ $lastAttempt->percentage }}% ({{ $lastAttempt->score }}/{{ $lastAttempt->total_questions }}). 
+                                            You need {{ $quiz->passing_score }}% to pass.
+                                        </div>
+                                    @endif
+                                    <div class="text-center">
+                                        <a href="{{ route('quizzes.take', [$quiz->module->course->slug, $quiz->module->id, $quiz->id]) }}" class="btn btn-primary btn-lg">
+                                            <i class="bi bi-play-circle me-2"></i>Start Quiz
+                                        </a>
+                                    </div>
+                                @else
+                                    @if($userAttempts->count() >= $quiz->max_attempts)
+                                        <div class="alert alert-danger">
+                                            You have reached the maximum number of attempts for this quiz.
+                                        </div>
+                                    @elseif($lastAttempt && !$lastAttempt->passed)
+                                        @php
+                                            $waitTime = $lastAttempt->completed_at->addMinutes(5);
+                                            $remainingTime = $waitTime->diffInMinutes(now());
+                                        @endphp
+                                        <div class="alert alert-info">
+                                            You must wait {{ $remainingTime }} minutes before retaking the quiz.
+                                        </div>
+                                    @endif
+                                @endif
+                            @else
+                                <div class="alert alert-warning">
+                                    This quiz has no questions yet. Please contact your instructor.
+                                </div>
+                            @endif
+                        @else
+                            <div class="text-center">
+                                <p class="text-muted">Please sign in to take this quiz.</p>
+                                <a href="{{ route('login') }}" class="btn btn-primary">Sign In</a>
+                            </div>
+                        @endauth
+                    </div>
+                </div>
+
+                @if($userAttempts->count() > 0)
+                    <div class="card mt-4">
+                        <div class="card-header">
+                            <h5 class="mb-0">Your Attempts</h5>
+                        </div>
+                        <div class="card-body">
+                            @foreach($userAttempts as $attempt)
+                                <div class="d-flex justify-content-between align-items-center p-3 {{ !$loop->last ? 'border-bottom' : '' }}">
+                                    <div>
+                                        <h6 class="mb-1">Attempt {{ $loop->iteration }}</h6>
+                                        <small class="text-muted">{{ $attempt->completed_at->format('M d, Y \a\t H:i') }}</small>
+                                    </div>
+                                    <div class="text-end">
+                                        <div class="fw-bold {{ $attempt->passed ? 'text-success' : 'text-danger' }}">
+                                            {{ $attempt->score }}/{{ $attempt->total_questions }} ({{ $attempt->percentage }}%)
+                                        </div>
+                                        <span class="badge bg-{{ $attempt->passed ? 'success' : 'danger' }}">
+                                            {{ $attempt->passed ? 'Passed' : 'Failed' }}
+                                        </span>
+                                    </div>
+                                </div>
+                            @endforeach
+                        </div>
+                    </div>
+                @endif
+
+                @if(auth()->check() && (auth()->id() === $quiz->module->course->instructor_id || auth()->user()->isAdmin()))
+                    <div class="card mt-4">
+                        <div class="card-header">
+                            <h5 class="mb-0">Questions ({{ $quiz->questions->count() }})</h5>
+                        </div>
+                        <div class="card-body">
+                            @if($quiz->questions->count() > 0)
+                                @foreach($quiz->questions as $question)
+                                    <div class="d-flex justify-content-between align-items-start p-3 {{ !$loop->last ? 'border-bottom' : '' }}">
+                                        <div class="flex-grow-1">
+                                            <h6 class="mb-2">{{ $loop->iteration }}. {{ $question->question }}</h6>
+                                            <div class="row">
+                                                @if($question->type === 'multiple_choice')
+                                                    @foreach($question->options as $option)
+                                                        <div class="col-md-6">
+                                                            <div class="form-check">
+                                                                <input class="form-check-input" type="radio" disabled {{ $option === $question->correct_answer ? 'checked' : '' }}>
+                                                                <label class="form-check-label {{ $option === $question->correct_answer ? 'text-success fw-bold' : '' }}">
+                                                                    {{ $option }}
+                                                                </label>
+                                                            </div>
+                                                        </div>
+                                                    @endforeach
+                                                @else
+                                                    <div class="col-12">
+                                                        <span class="badge bg-success">Correct Answer: {{ $question->correct_answer }}</span>
+                                                    </div>
+                                                @endif
+                                            </div>
+                                            @if($question->explanation)
+                                                <small class="text-muted"><strong>Explanation:</strong> {{ $question->explanation }}</small>
+                                            @endif
+                                        </div>
+                                        <div class="btn-group btn-group-sm ms-3">
+                                            <a href="{{ route('questions.edit', [$quiz->module->course->slug, $quiz->module->id, $quiz->id, $question->id]) }}" class="btn btn-outline-secondary">Edit</a>
+                                            <button class="btn btn-outline-danger" onclick="deleteQuestion({{ $question->id }})">Delete</button>
+                                        </div>
+                                    </div>
+                                @endforeach
+                            @else
+                                <div class="text-center py-4">
+                                    <i class="bi bi-question-circle display-4 text-muted"></i>
+                                    <h6 class="text-muted mt-3">No questions yet</h6>
+                                    <a href="{{ route('questions.create', [$quiz->module->course->slug, $quiz->module->id, $quiz->id]) }}" class="btn btn-primary">Add First Question</a>
+                                </div>
+                            @endif
+                        </div>
+                    </div>
+                @endif
+            </div>
+
+            <div class="col-lg-4">
+                <div class="card">
+                    <div class="card-header">
+                        <h6 class="mb-0">Module</h6>
+                    </div>
+                    <div class="card-body">
+                        <h6>{{ $quiz->module->title }}</h6>
+                        <p class="text-muted small">{{ $quiz->module->course->title }}</p>
+                        <a href="{{ route('modules.show', [$quiz->module->course->slug, $quiz->module->id]) }}" class="btn btn-outline-primary btn-sm w-100">
+                            Back to Module
+                        </a>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    @push('scripts')
+    <script>
+        function deleteQuestion(questionId) {
+            if (confirm('Are you sure you want to delete this question?')) {
+                const form = document.createElement('form');
+                form.method = 'POST';
+                form.action = `/courses/{{ $quiz->module->course->slug }}/modules/{{ $quiz->module->id }}/quizzes/{{ $quiz->id }}/questions/${questionId}`;
+                form.innerHTML = `
+                    @csrf
+                    @method('DELETE')
+                `;
+                document.body.appendChild(form);
+                form.submit();
+            }
+        }
+    </script>
+    @endpush
+</x-app-layout>
+resources/views/quizzes/take.blade.php
+php<x-app-layout>
+    <x-slot name="title">Taking: {{ $quiz->title }} - {{ config('app.name') }}</x-slot>
+
+    @push('styles')
+    <style>
+        .quiz-timer {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            z-index: 1000;
+            background: rgba(255, 255, 255, 0.95);
+            border: 2px solid #dc3545;
+            border-radius: 10px;
+            padding: 10px 15px;
+            box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+        }
+        .quiz-timer.warning {
+            border-color: #ffc107;
+            animation: pulse 1s infinite;
+        }
+        .quiz-timer.danger {
+            border-color: #dc3545;
+            animation: pulse 0.5s infinite;
+        }
+        @keyframes pulse {
+            0% { opacity: 1; }
+            50% { opacity: 0.7; }
+            100% { opacity: 1; }
+        }
+        .question-card {
+            border-left: 4px solid #007bff;
+        }
+    </style>
+    @endpush
+
+    <div class="quiz-timer" id="timer">
+        <div class="text-center">
+            <i class="bi bi-clock"></i>
+            <div class="fw-bold" id="time-remaining">{{ $quiz->time_limit }}:00</div>
+            <small>Time Left</small>
+        </div>
+    </div>
+
+    <div class="container py-4">
+        <div class="row justify-content-center">
+            <div class="col-lg-10">
+                <div class="card">
+                    <div class="card-header">
+                        <h4 class="mb-0">{{ $quiz->title }}</h4>
+                        <small class="text-muted">{{ $questions->count() }} questions • {{ $quiz->time_limit }} minutes</small>
+                    </div>
+                    <div class="card-body">
+                        <form id="quiz-form" action="{{ route('quizzes.submit', [$quiz->module->course->slug, $quiz->module->id, $quiz->id]) }}" method="POST">
+                            @csrf
+                            <input type="hidden" name="started_at" value="{{ now()->toISOString() }}">
+
+                            @foreach($questions as $question)
+                                <div class="question-card card mb-4">
+                                    <div class="card-body">
+                                        <h6 class="card-title">{{ $loop->iteration }}. {{ $question->question }}</h6>
+                                        
+                                        @if($question->type === 'multiple_choice')
+                                            @foreach($question->options as $optionIndex => $option)
+                                                <div class="form-check mb-2">
+                                                    <input class="form-check-input" type="radio" 
+                                                           name="answers[{{ $question->id }}]" 
+                                                           id="q{{ $question->id }}_{{ $optionIndex }}" 
+                                                           value="{{ $option }}" required>
+                                                    <label class="form-check-label" for="q{{ $question->id }}_{{ $optionIndex }}">
+                                                        {{ chr(65 + $optionIndex) }}. {{ $option }}
+                                                    </label>
+                                                </div>
+                                            @endforeach
+                                        @elseif($question->type === 'true_false')
+                                            <div class="form-check mb-2">
+                                                <input class="form-check-input" type="radio" 
+                                                       name="answers[{{ $question->id }}]" 
+                                                       id="q{{ $question->id }}_true" 
+                                                       value="True" required>
+                                                <label class="form-check-label" for="q{{ $question->id }}_true">
+                                                    True
+                                                </label>
+                                            </div>
+                                            <div class="form-check mb-2">
+                                                <input class="form-check-input" type="radio" 
+                                                       name="answers[{{ $question->id }}]" 
+                                                       id="q{{ $question->id }}_false" 
+                                                       value="False" required>
+                                                <label class="form-check-label" for="q{{ $question->id }}_false">
+                                                    False
+                                                </label>
+                                            </div>
+                                        @endif
+                                    </div>
+                                </div>
+                            @endforeach
+
+                            <div class="text-center">
+                                <button type="submit" class="btn btn-primary btn-lg" id="submit-btn">
+                                    <i class="bi bi-check-circle me-2"></i>Submit Quiz
+                                </button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    @push('scripts')
+    <script>
+        let timeLimit = {{ $quiz->time_limit * 60 }};
+        let timeRemaining = timeLimit;
+        const timer = document.getElementById('timer');
+        const timeDisplay = document.getElementById('time-remaining');
+        const form = document.getElementById('quiz-form');
+
+        const countdown = setInterval(() => {
+            timeRemaining--;
+            
+            const minutes = Math.floor(timeRemaining / 60);
+            const seconds = timeRemaining % 60;
+            
+            timeDisplay.textContent = `${minutes}:${seconds.toString().padStart(2, '0')}`;
+            
+            if (timeRemaining <= 300) {
+                timer.classList.add('warning');
+            }
+            if (timeRemaining <= 60) {
+                timer.classList.add('danger');
+            }
+            
+            if (timeRemaining <= 0) {
+                clearInterval(countdown);
+                alert('Time is up! Submitting quiz...');
+                form.submit();
+            }
+        }, 1000);
+
+        document.getElementById('submit-btn').addEventListener('click', function(e) {
+            if (!confirm('Are you sure you want to submit the quiz? You cannot change your answers after submission.')) {
+                e.preventDefault();
+            } else {
+                clearInterval(countdown);
+            }
+        });
+
+        window.addEventListener('beforeunload', function(e) {
+            e.preventDefault();
+            e.returnValue = '';
+            return '';
+        });
+    </script>
+    @endpush
+</x-app-layout>
+resources/views/questions/create.blade.php
+php<x-app-layout>
+    <x-slot name="title">Add Question - {{ config('app.name') }}</x-slot>
+
+    <div class="container py-4">
+        <div class="row justify-content-center">
+            <div class="col-lg-8">
+                <div class="card">
+                    <div class="card-header">
+                        <h4 class="mb-0">Add Question to: {{ $quiz->title }}</h4>
+                    </div>
+                    <div class="card-body">
+                        <form action="{{ route('questions.store', [$quiz->module->course->slug, $quiz->module->id, $quiz->id]) }}" method="POST">
+                            @csrf
+                            
+                            <div class="mb-3">
+                                <label for="question" class="form-label">Question</label>
+                                <textarea class="form-control @error('question') is-invalid @enderror" 
+                                          id="question" name="question" rows="3" required>{{ old('question') }}</textarea>
+                                @error('question')
+                                    <div class="invalid-feedback">{{ $message }}</div>
+                                @enderror
+                            </div>
+
+                            <div class="mb-3">
+                                <label for="type" class="form-label">Question Type</label>
+                                <select class="form-select @error('type') is-invalid @enderror" id="type" name="type" required onchange="toggleOptions()">
+                                    <option value="">Select Type</option>
+                                    <option value="multiple_choice" {{ old('type') === 'multiple_choice' ? 'selected' : '' }}>Multiple Choice</option>
+                                    <option value="true_false" {{ old('type') === 'true_false' ? 'selected' : '' }}>True/False</option>
+                                </select>
+                                @error('type')
+                                    <div class="invalid-feedback">{{ $message }}</div>
+                                @enderror
+                            </div>
+
+                            <div id="options-section" style="display: none;">
+                                <label class="form-label">Answer Options</label>
+                                <div id="options-container">
+                                    <div class="input-group mb-2">
+                                        <span class="input-group-text">A</span>
+                                        <input type="text" class="form-control" name="options[]" placeholder="Option A">
+                                    </div>
+                                    <div class="input-group mb-2">
+                                        <span class="input-group-text">B</span>
+                                        <input type="text" class="form-control" name="options[]" placeholder="Option B">
+                                    </div>
+                                    <div class="input-group mb-2">
+                                        <span class="input-group-text">C</span>
+                                        <input type="text" class="form-control" name="options[]" placeholder="Option C">
+                                    </div>
+                                    <div class="input-group mb-2">
+                                        <span class="input-group-text">D</span>
+                                        <input type="text" class="form-control" name="options[]" placeholder="Option D">
+                                    </div>
+                                </div>
+                                <button type="button" class="btn btn-sm btn-outline-primary" onclick="addOption()">Add Option</button>
+                                @error('options')
+                                    <div class="text-danger small">{{ $message }}</div>
+                                @enderror
+                            </div>
+
+                            <div class="mb-3">
+                                <label for="correct_answer" class="form-label">Correct Answer</label>
+                                <input type="text" class="form-control @error('correct_answer') is-invalid @enderror" 
+                                       id="correct_answer" name="correct_answer" value="{{ old('correct_answer') }}" required>
+                                @error('correct_answer')
+                                    <div class="invalid-feedback">{{ $message }}</div>
+                                @enderror
+                                <div class="form-text">For multiple choice, enter the exact text of the correct option. For true/false, enter "True" or "False".</div>
+                            </div>
+
+                            <div class="mb-3">
+                                <label for="explanation" class="form-label">Explanation (Optional)</label>
+                                <textarea class="form-control @error('explanation') is-invalid @enderror" 
+                                          id="explanation" name="explanation" rows="2">{{ old('explanation') }}</textarea>
+                                @error('explanation')
+                                    <div class="invalid-feedback">{{ $message }}</div>
+                                @enderror
+                            </div>
+
+                            <div class="mb-3">
+                                <label for="points" class="form-label">Points</label>
+                                <input type="number" class="form-control @error('points') is-invalid @enderror" 
+                                       id="points" name="points" value="{{ old('points', 1) }}" min="1" required>
+                                @error('points')
+                                    <div class="invalid-feedback">{{ $message }}</div>
+                                @enderror
+                            </div>
+
+                            <div class="d-flex justify-content-between">
+                                <a href="{{ route('quizzes.show', [$quiz->module->course->slug, $quiz->module->id, $quiz->id]) }}" class="btn btn-secondary">
+                                    <i class="bi bi-arrow-left me-2"></i>Cancel
+                                </a>
+                                <button type="submit" class="btn btn-primary">
+                                    <i class="bi bi-check me-2"></i>Add Question
+                                </button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    @push('scripts')
+    <script>
+        function toggleOptions() {
+            const type = document.getElementById('type').value;
+            const optionsSection = document.getElementById('options-section');
+            const correctAnswer = document.getElementById('correct_answer');
+            
+            if (type === 'multiple_choice') {
+                optionsSection.style.display = 'block';
+                correctAnswer.placeholder = 'Enter the exact text of the correct option';
+            } else if (type === 'true_false') {
+                optionsSection.style.display = 'none';
+                correctAnswer.placeholder = 'Enter "True" or "False"';
+            } else {
+                optionsSection.style.display = 'none';
+                correctAnswer.placeholder = '';
+            }
+        }
+
+        function addOption() {
+            const container = document.getElementById('options-container');
+            const optionCount = container.children.length;
+            const letter = String.fromCharCode(65 + optionCount);
+            
+            const newOption = document.createElement('div');
+            newOption.className = 'input-group mb-2';
+            newOption.innerHTML = `
+                <span class="input-group-text">${letter}</span>
+                <input type="text" class="form-control" name="options[]" placeholder="Option ${letter}">
+                <button type="button" class="btn btn-outline-danger" onclick="removeOption(this)">Remove</button>
+            `;
+            
+            container.appendChild(newOption);
+        }
+
+        function removeOption(button) {
+            button.parentElement.remove();
+            updateOptionLabels();
+        }
+
+        function updateOptionLabels() {
+            const container = document.getElementById('options-container');
+            const options = container.children;
+            
+            for (let i = 0; i < options.length; i++) {
+                const letter = String.fromCharCode(65 + i);
+                const span = options[i].querySelector('.input-group-text');
+                const input = options[i].querySelector('input');
+                
+                span.textContent = letter;
+                input.placeholder = `Option ${letter}`;
+            }
+        }
+
+        document.addEventListener('DOMContentLoaded', function() {
+            toggleOptions();
+        });
+    </script>
+    @endpush
+</x-app-layout>
+resources/views/admin/users/index.blade.php
+php<x-app-layout>
+    <x-slot name="title">User Management - Admin - {{ config('app.name') }}</x-slot>
+
+    <div class="container py-4">
+        <div class="row mb-4">
+            <div class="col-md-8">
+                <h2>User Management</h2>
+                <p class="text-muted">Manage all registered users</p>
+            </div>
+            <div class="col-md-4 text-md-end">
+                <a href="{{ route('admin.users.create') }}" class="btn btn-primary">
+                    <i class="bi bi-plus-circle me-2"></i>Add User
+                </a>
+            </div>
+        </div>
+
+        <div class="card mb-4">
+            <div class="card-body">
+                <form method="GET" action="{{ route('admin.users.index') }}">
+                    <div class="row g-3">
+                        <div class="col-md-4">
+                            <input type="text" name="search" class="form-control" placeholder="Search users..." value="{{ request('search') }}">
+                        </div>
+                        <div class="col-md-3">
+                            <select name="role" class="form-select">
+                                <option value="">All Roles</option>
+                                <option value="student" {{ request('role') === 'student' ? 'selected' : '' }}>Student</option>
+                                <option value="teacher" {{ request('role') === 'teacher' ? 'selected' : '' }}>Teacher</option>
+                                <option value="expert" {{ request('role') === 'expert' ? 'selected' : '' }}>Expert</option>
+                                <option value="moderator" {{ request('role') === 'moderator' ? 'selected' : '' }}>Moderator</option>
+                                <option value="admin" {{ request('role') === 'admin' ? 'selected' : '' }}>Admin</option>
+                            </select>
+                        </div>
+                        <div class="col-md-3">
+                            <select name="verified" class="form-select">
+                                <option value="">All Status</option>
+                                <option value="1" {{ request('verified') === '1' ? 'selected' : '' }}>Verified</option>
+                                <option value="0" {{ request('verified') === '0' ? 'selected' : '' }}>Unverified</option>
+                            </select>
+                        </div>
+                        <div class="col-md-2">
+                            <button type="submit" class="btn btn-primary w-100">
+                                <i class="bi bi-search me-1"></i>Filter
+                            </button>
+                        </div>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+        <div class="card">
+            <div class="card-body">
+                @if($users->count() > 0)
+                    <div class="table-responsive">
+                        <table class="table table-hover">
+                            <thead>
+                                <tr>
+                                    <th>User</th>
+                                    <th>Role</th>
+                                    <th>Institution</th>
+                                    <th>Status</th>
+                                    <th>Joined</th>
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach($users as $user)
+                                    <tr>
+                                        <td>
+                                            <div class="d-flex align-items-center">
+                                                <img src="{{ $user->avatar_url }}" alt="{{ $user->name }}" class="avatar avatar-sm me-3">
+                                                <div>
+                                                    <h6 class="mb-0">{{ $user->name }}</h6>
+                                                    <small class="text-muted">{{ $user->email }}</small>
+                                                </div>
+                                            </div>
+                                        </td>
+                                        <td>
+                                            <span class="badge bg-{{ $user->role === 'admin' ? 'danger' : ($user->role === 'moderator' ? 'warning' : ($user->role === 'teacher' ? 'info' : ($user->role === 'expert' ? 'success' : 'secondary'))) }}">
+                                                {{ ucfirst($user->role) }}
+                                            </span>
+                                        </td>
+                                        <td>{{ $user->institution ?? '-' }}</td>
+                                        <td>
+                                            @if($user->is_verified)
+                                                <span class="badge bg-success">
+                                                    <i class="bi bi-check-circle me-1"></i>Verified
+                                                </span>
+                                            @else
+                                                <span class="badge bg-warning">
+                                                    <i class="bi bi-clock me-1"></i>Unverified
+                                                </span>
+                                            @endif
+                                        </td>
+                                        <td>{{ $user->created_at->format('M d, Y') }}</td>
+                                        <td>
+                                            <div class="btn-group btn-group-sm">
+                                                <a href="{{ route('admin.users.show', $user) }}" class="btn btn-outline-primary">View</a>
+                                                <a href="{{ route('admin.users.edit', $user) }}" class="btn btn-outline-secondary">Edit</a>
+                                                @if($user->id !== auth()->id())
+                                                    @if($user->is_verified)
+                                                        <form method="POST" action="{{ route('admin.users.unverify', $user) }}" class="d-inline">
+                                                            @csrf
+                                                            <button type="submit" class="btn btn-outline-warning">Unverify</button>
+                                                        </form>
+                                                    @else
+                                                        <form method="POST" action="{{ route('admin.users.verify', $user) }}" class="d-inline">
+                                                            @csrf
+                                                            <button type="submit" class="btn btn-outline-success">Verify</button>
+                                                        </form>
+                                                    @endif
+                                                    <button class="btn btn-outline-danger" onclick="deleteUser({{ $user->id }})">Delete</button>
+                                                @endif
+                                            </div>
+                                        </td>
+                                    </tr>
+                                @endforeach
+                            </tbody>
+                        </table>
+                    </div>
+
+                    <div class="d-flex justify-content-center mt-4">
+                        {{ $users->withQueryString()->links() }}
+                    </div>
+                @else
+                    <div class="text-center py-5">
+                        <i class="bi bi-people display-1 text-muted"></i>
+                        <h4 class="text-muted mt-3">No users found</h4>
+                    </div>
+                @endif
+            </div>
+        </div>
+    </div>
+
+    @push('scripts')
+    <script>
+        function deleteUser(userId) {
+            if (confirm('Are you sure you want to delete this user? This action cannot be undone.')) {
+                const form = document.createElement('form');
+                form.method = 'POST';
+                form.action = `/admin/users/${userId}`;
+                form.innerHTML = `
+                    @csrf
+                    @method('DELETE')
+                `;
+                document.body.appendChild(form);
+                form.submit();
+            }
+        }
+    </script>
+    @endpush
+</x-app-layout>
+6. Routes Update
+routes/web.php (Tambahkan routes ini)
+php<?php
+
+use App\Http\Controllers\ProfileController;
+use App\Http\Controllers\HomeController;
+use App\Http\Controllers\CourseController;
+use App\Http\Controllers\ModuleController;
+use App\Http\Controllers\ForumController;
+use App\Http\Controllers\HomeworkController;
+use App\Http\Controllers\QuizController;
+use App\Http\Controllers\QuestionController;
+use App\Http\Controllers\FinalProjectController;
+use App\Http\Controllers\Admin\UserController;
+use Illuminate\Support\Facades\Route;
+
+Route::get('/', [HomeController::class, 'index'])->name('home');
+
+Route::get('/courses', [CourseController::class, 'index'])->name('courses.index');
+Route::get('/courses/create', [CourseController::class, 'create'])->name('courses.create')->middleware(['auth', 'role:teacher,moderator,admin']);
+Route::post('/courses', [CourseController::class, 'store'])->name('courses.store')->middleware(['auth', 'role:teacher,moderator,admin']);
+Route::get('/courses/{slug}', [CourseController::class, 'show'])->name('courses.show');
+Route::get('/courses/{slug}/edit', [CourseController::class, 'edit'])->name('courses.edit')->middleware(['auth', 'role:teacher,moderator,admin']);
+Route::put('/courses/{slug}', [CourseController::class, 'update'])->name('courses.update')->middleware(['auth', 'role:teacher,moderator,admin']);
+Route::delete('/courses/{slug}', [CourseController::class, 'destroy'])->name('courses.destroy')->middleware(['auth', 'role:teacher,moderator,admin']);
+Route::get('/courses/{slug}/learn', [CourseController::class, 'learn'])->name('courses.learn')->middleware('auth');
+
+Route::get('/forum', [ForumController::class, 'index'])->name('forum.index');
+Route::get('/forum/search', [ForumController::class, 'search'])->name('forum.search');
+Route::get('/forum/create', [ForumController::class, 'create'])->name('forum.create')->middleware('auth');
+Route::post('/forum', [ForumController::class, 'store'])->name('forum.store')->middleware('auth');
+Route::get('/forum/{category}', [ForumController::class, 'category'])->name('forum.category');
+Route::get('/forum/{category}/{thread}', [ForumController::class, 'show'])->name('forum.thread');
+Route::get('/forum/{category}/{thread}/edit', [ForumController::class, 'edit'])->name('forum.edit')->middleware(['auth', 'role:teacher,moderator,admin']);
+Route::put('/forum/{category}/{thread}', [ForumController::class, 'update'])->name('forum.update')->middleware(['auth', 'role:teacher,moderator,admin']);
+Route::delete('/forum/{category}/{thread}', [ForumController::class, 'destroy'])->name('forum.destroy')->middleware(['auth', 'role:teacher,moderator,admin']);
+
+Route::get('/profile/{id}', [ProfileController::class, 'show'])->name('profile.show');
+
+Route::middleware('auth')->group(function () {
+    Route::get('/dashboard', [HomeController::class, 'dashboard'])->name('dashboard');
+
+    Route::get('/profile', [ProfileController::class, 'edit'])->name('profile.edit');
+    Route::patch('/profile', [ProfileController::class, 'update'])->name('profile.update');
+    Route::delete('/profile', [ProfileController::class, 'destroy'])->name('profile.destroy');
+
+    Route::post('/courses/{id}/enroll', [CourseController::class, 'enroll'])->name('courses.enroll');
+    Route::post('/courses/{course}/modules/{module}/complete', [CourseController::class, 'completeModule'])->name('courses.complete-module');
+
+    Route::post('/forum/{category}/{thread}/reply', [ForumController::class, 'reply'])->name('forum.reply');
+    Route::post('/forum/reply/{reply}/upvote', [ForumController::class, 'upvote'])->name('forum.reply.upvote');
+    Route::post('/forum/reply/{reply}/best-answer', [ForumController::class, 'markBestAnswer'])->name('forum.reply.best-answer');
+
+    Route::resource('homework', HomeworkController::class);
+    Route::post('/homework/{homework}/answer', [HomeworkController::class, 'answer'])->name('homework.answer');
+    Route::post('/homework/answer/{answer}/upvote', [HomeworkController::class, 'upvoteAnswer'])->name('homework.answer.upvote');
+    Route::post('/homework/answer/{answer}/best-answer', [HomeworkController::class, 'markBestAnswer'])->name('homework.answer.best-answer');
+
+    Route::get('/courses/{course}/modules/create', [ModuleController::class, 'create'])->name('modules.create')->middleware('role:teacher,moderator,admin');
+    Route::post('/courses/{course}/modules', [ModuleController::class, 'store'])->name('modules.store')->middleware('role:teacher,moderator,admin');
+    Route::get('/courses/{course}/modules/{module}', [ModuleController::class, 'show'])->name('modules.show');
+    Route::get('/courses/{course}/modules/{module}/edit', [ModuleController::class, 'edit'])->name('modules.edit')->middleware('role:teacher,moderator,admin');
+    Route::put('/courses/{course}/modules/{module}', [ModuleController::class, 'update'])->name('modules.update')->middleware('role:teacher,moderator,admin');
+    Route::delete('/courses/{course}/modules/{module}', [ModuleController::class, 'destroy'])->name('modules.destroy')->middleware('role:teacher,moderator,admin');
+    Route::delete('/courses/{course}/modules/{module}/attachment', [ModuleController::class, 'removeAttachment'])->name('modules.remove-attachment')->middleware('role:teacher,moderator,admin');
+
+    Route::get('/courses/{course}/modules/{module}/quizzes/create', [QuizController::class, 'create'])->name('quizzes.create')->middleware('role:teacher,moderator,admin');
+    Route::post('/courses/{course}/modules/{module}/quizzes', [QuizController::class, 'store'])->name('quizzes.store')->middleware('role:teacher,moderator,admin');
+    Route::get('/courses/{course}/modules/{module}/quizzes/{quiz}', [QuizController::class, 'show'])->name('quizzes.show');
+    Route::get('/courses/{course}/modules/{module}/quizzes/{quiz}/take', [QuizController::class, 'take'])->name('quizzes.take');
+    Route::post('/courses/{course}/modules/{module}/quizzes/{quiz}/submit', [QuizController::class, 'submit'])->name('quizzes.submit');
+    Route::get('/courses/{course}/modules/{module}/quizzes/{quiz}/edit', [QuizController::class, 'edit'])->name('quizzes.edit')->middleware('role:teacher,moderator,admin');
+    Route::put('/courses/{course}/modules/{module}/quizzes/{quiz}', [QuizController::class, 'update'])->name('quizzes.update')->middleware('role:teacher,moderator,admin');
+    Route::delete('/courses/{course}/modules/{module}/quizzes/{quiz}', [QuizController::class, 'destroy'])->name('quizzes.destroy')->middleware('role:teacher,moderator,admin');
+
+    Route::get('/courses/{course}/modules/{module}/quizzes/{quiz}/questions/create', [QuestionController::class, 'create'])->name('questions.create')->middleware('role:teacher,moderator,admin');
+    Route::post('/courses/{course}/modules/{module}/quizzes/{quiz}/questions', [QuestionController::class, 'store'])->name('questions.store')->middleware('role:teacher,moderator,admin');
+    Route::get('/courses/{course}/modules/{module}/quizzes/{quiz}/questions/{question}/edit', [QuestionController::class, 'edit'])->name('questions.edit')->middleware('role:teacher,moderator,admin');
+    Route::put('/courses/{course}/modules/{module}/quizzes/{quiz}/questions/{question}', [QuestionController::class, 'update'])->name('questions.update')->middleware('role:teacher,moderator,admin');
+    Route::delete('/courses/{course}/modules/{module}/quizzes/{quiz}/questions/{question}', [QuestionController::class, 'destroy'])->name('questions.destroy')->middleware('role:teacher,moderator,admin');
+
+    Route::get('/courses/{course}/final-projects/create', [FinalProjectController::class, 'create'])->name('final-projects.create')->middleware('role:teacher,moderator,admin');
+    Route::post('/courses/{course}/final-projects', [FinalProjectController::class, 'store'])->name('final-projects.store')->middleware('role:teacher,moderator,admin');
+    Route::get('/courses/{course}/final-projects/{finalProject}', [FinalProjectController::class, 'show'])->name('final-projects.show');
+    Route::post('/courses/{course}/final-projects/{finalProject}/submit', [FinalProjectController::class, 'submit'])->name('final-projects.submit');
+    Route::get('/courses/{course}/final-projects/{finalProject}/submissions', [FinalProjectController::class, 'submissions'])->name('final-projects.submissions')->middleware('role:teacher,moderator,admin');
+    Route::post('/courses/{course}/final-projects/{finalProject}/submissions/{submission}/grade', [FinalProjectController::class, 'grade'])->name('final-projects.grade')->middleware('role:teacher,moderator,admin');
+    Route::get('/courses/{course}/final-projects/{finalProject}/edit', [FinalProjectController::class, 'edit'])->name('final-projects.edit')->middleware('role:teacher,moderator,admin');
+    Route::put('/courses/{course}/final-projects/{finalProject}', [FinalProjectController::class, 'update'])->name('final-projects.update')->middleware('role:teacher,moderator,admin');
+    Route::delete('/courses/{course}/final-projects/{finalProject}', [FinalProjectController::class, 'destroy'])->name('final-projects.destroy')->middleware('role:teacher,moderator,admin');
+});
+
+Route::middleware(['auth', 'role:admin'])->prefix('admin')->name('admin.')->group(function () {
+    Route::get('/', function () {
+        return redirect()->route('admin.users.index');
+    })->name('index');
+    
+    Route::resource('users', UserController::class);
+    Route::post('/users/{user}/verify', [UserController::class, 'verify'])->name('users.verify');
+    Route::post('/users/{user}/unverify', [UserController::class, 'unverify'])->name('users.unverify');
+    Route::post('/users/{user}/reset-password', [UserController::class, 'resetPassword'])->name('users.reset-password');
+});
+
+require __DIR__.'/auth.php';
+Semua file di atas sudah mencakup fitur quiz dengan pertanyaan pilihan ganda, sistem retry jika gagal, final project dengan grading system, dan panel admin untuk user management. Expert role sudah diubah menjadi seperti student yang tidak bisa membuat course.RetryJberikan lengkap command untuk membuat semua file di atas dan migartenyaEditMenyusun lengkap command untuk pembuatan file proyek2sUser ingin semua command untuk membuat file-file yang sudah saya berikan di atas. Saya perlu memberikan semua command untuk:
+
+Migration files
+Model files
+Controller files
+View files
+Command untuk menjalankan migration
+
+Mari saya susun command-command tersebut secara berurutan.Berikut adalah semua command yang diperlukan untuk membuat file-file di atas:
+1. Command untuk Migration
+bashphp artisan make:migration create_quiz_attempts_table
+php artisan make:migration create_final_projects_table
+php artisan make:migration create_final_project_submissions_table
+2. Command untuk Models
+bashphp artisan make:model QuizAttempt
+php artisan make:model FinalProject
+php artisan make:model FinalProjectSubmission
+3. Command untuk Controllers
+bashphp artisan make:controller QuizController
+php artisan make:controller QuestionController
+php artisan make:controller FinalProjectController
+php artisan make:controller Admin/UserController
+4. Command untuk Views (buat folder dan file manual)
+bash# Buat direktori untuk views
+mkdir -p resources/views/quizzes
+mkdir -p resources/views/questions
+mkdir -p resources/views/final-projects
+mkdir -p resources/views/admin/users
+
+# Buat file views (manual atau dengan touch command)
+touch resources/views/quizzes/create.blade.php
+touch resources/views/quizzes/show.blade.php
+touch resources/views/quizzes/take.blade.php
+touch resources/views/quizzes/edit.blade.php
+
+touch resources/views/questions/create.blade.php
+touch resources/views/questions/edit.blade.php
+
+touch resources/views/final-projects/create.blade.php
+touch resources/views/final-projects/show.blade.php
+touch resources/views/final-projects/edit.blade.php
+touch resources/views/final-projects/submissions.blade.php
+
+touch resources/views/admin/users/index.blade.php
+touch resources/views/admin/users/create.blade.php
+touch resources/views/admin/users/show.blade.php
+touch resources/views/admin/users/edit.blade.php
+5. Command untuk menjalankan Migration
+bash# Jalankan migration
+php artisan migrate
+
+# Atau jika ada masalah, reset dan migrate ulang
+php artisan migrate:fresh --seed
+6. Command untuk Seed Data (Optional)
+bash# Jika ingin membuat seeder untuk data dummy
+php artisan make:seeder QuizSeeder
+php artisan make:seeder FinalProjectSeeder
+
+# Jalankan seeder
+php artisan db:seed
+7. Command untuk Storage Link (jika belum ada)
+bashphp artisan storage:link
+8. Command untuk Cache Clear (setelah update routes)
+bashphp artisan route:clear
+php artisan config:clear
+php artisan cache:clear
+php artisan view:clear
+9. Urutan Lengkap Command untuk Setup
+bash# 1. Buat migration files
+php artisan make:migration create_quiz_attempts_table
+php artisan make:migration create_final_projects_table  
+php artisan make:migration create_final_project_submissions_table
+
+# 2. Buat model files
+php artisan make:model QuizAttempt
+php artisan make:model FinalProject
+php artisan make:model FinalProjectSubmission
+
+# 3. Buat controller files
+php artisan make:controller QuizController
+php artisan make:controller QuestionController
+php artisan make:controller FinalProjectController
+php artisan make:controller Admin/UserController
+
+# 4. Buat direktori untuk views
+mkdir -p resources/views/quizzes
+mkdir -p resources/views/questions
+mkdir -p resources/views/final-projects
+mkdir -p resources/views/admin/users
+
+# 5. Buat file views
+touch resources/views/quizzes/create.blade.php
+touch resources/views/quizzes/show.blade.php
+touch resources/views/quizzes/take.blade.php
+touch resources/views/quizzes/edit.blade.php
+touch resources/views/questions/create.blade.php
+touch resources/views/questions/edit.blade.php
+touch resources/views/final-projects/create.blade.php
+touch resources/views/final-projects/show.blade.php
+touch resources/views/final-projects/edit.blade.php
+touch resources/views/final-projects/submissions.blade.php
+touch resources/views/admin/users/index.blade.php
+touch resources/views/admin/users/create.blade.php
+touch resources/views/admin/users/show.blade.php
+touch resources/views/admin/users/edit.blade.php
+
+# 6. Jalankan migration
+php artisan migrate
+
+# 7. Buat storage link jika belum ada
+php artisan storage:link
+
+# 8. Clear cache
+php artisan route:clear
+php artisan config:clear
+php artisan cache:clear
+php artisan view:clear
+
+# 9. Jalankan seeder jika sudah ada
+php artisan db:seed
+10. Command untuk Membuat direktori storage jika diperlukan
+bash# Buat direktori storage untuk uploads
+mkdir -p storage/app/public/quiz-attachments
+mkdir -p storage/app/public/final-project-attachments
+mkdir -p storage/app/public/final-project-submissions
+11. Command untuk Permission (jika di Linux/Mac)
+bash# Set permission untuk storage dan bootstrap/cache
+chmod -R 775 storage
+chmod -R 775 bootstrap/cache
+Setelah menjalankan semua command di atas, kemudian copy-paste semua kode yang sudah saya berikan ke file-file yang sesuai. Pastikan untuk menjalankan command sesuai urutan agar tidak ada error dependency.RetryJMasih ada file yang kodenya kamu beri, seperti edit quizzes, questions, admi/user create, edit, show dan mungkin file lainnyaEdit3 / 3Mengidentifikasi dan bersiap melengkapi file view yang kurang3sUser benar, saya memang belum memberikan semua file view yang diperlukan. Saya perlu melengkapi semua file view yang masih kurang, seperti:
+
+resources/views/quizzes/edit.blade.php
+resources/views/questions/edit.blade.php
+resources/views/admin/users/create.blade.php
+resources/views/admin/users/edit.blade.php
+resources/views/admin/users/show.blade.php
+resources/views/final-projects/create.blade.php
+resources/views/final-projects/edit.blade.php
+resources/views/final-projects/submissions.blade.php
+Dan mungkin ada file lain yang terlewat
+
+Saya akan berikan semua file yang masih kurang tersebut.Anda benar, saya masih belum memberikan beberapa file view. Berikut adalah semua file yang masih kurang:
+1. resources/views/quizzes/edit.blade.php
+php<x-app-layout>
+    <x-slot name="title">Edit Quiz - {{ config('app.name') }}</x-slot>
+
+    <div class="container py-4">
+        <div class="row justify-content-center">
+            <div class="col-lg-8">
+                <div class="card">
+                    <div class="card-header">
+                        <h4 class="mb-0">Edit Quiz: {{ $quiz->title }}</h4>
+                    </div>
+                    <div class="card-body">
+                        <form action="{{ route('quizzes.update', [$quiz->module->course->slug, $quiz->module->id, $quiz->id]) }}" method="POST">
+                            @csrf
+                            @method('PUT')
+                            
+                            <div class="mb-3">
+                                <label for="title" class="form-label">Quiz Title</label>
+                                <input type="text" class="form-control @error('title') is-invalid @enderror" 
+                                       id="title" name="title" value="{{ old('title', $quiz->title) }}" required>
+                                @error('title')
+                                    <div class="invalid-feedback">{{ $message }}</div>
+                                @enderror
+                            </div>
+
+                            <div class="mb-3">
+                                <label for="description" class="form-label">Description (Optional)</label>
+                                <textarea class="form-control @error('description') is-invalid @enderror" 
+                                          id="description" name="description" rows="3">{{ old('description', $quiz->description) }}</textarea>
+                                @error('description')
+                                    <div class="invalid-feedback">{{ $message }}</div>
+                                @enderror
+                            </div>
+
+                            <div class="row mb-3">
+                                <div class="col-md-4">
+                                    <label for="time_limit" class="form-label">Time Limit (minutes)</label>
+                                    <input type="number" class="form-control @error('time_limit') is-invalid @enderror" 
+                                           id="time_limit" name="time_limit" value="{{ old('time_limit', $quiz->time_limit) }}" min="1" required>
+                                    @error('time_limit')
+                                        <div class="invalid-feedback">{{ $message }}</div>
+                                    @enderror
+                                </div>
+                                <div class="col-md-4">
+                                    <label for="passing_score" class="form-label">Passing Score (%)</label>
+                                    <input type="number" class="form-control @error('passing_score') is-invalid @enderror" 
+                                           id="passing_score" name="passing_score" value="{{ old('passing_score', $quiz->passing_score) }}" min="1" max="100" required>
+                                    @error('passing_score')
+                                        <div class="invalid-feedback">{{ $message }}</div>
+                                    @enderror
+                                </div>
+                                <div class="col-md-4">
+                                    <label for="max_attempts" class="form-label">Max Attempts</label>
+                                    <input type="number" class="form-control @error('max_attempts') is-invalid @enderror" 
+                                           id="max_attempts" name="max_attempts" value="{{ old('max_attempts', $quiz->max_attempts) }}" min="1" required>
+                                    @error('max_attempts')
+                                        <div class="invalid-feedback">{{ $message }}</div>
+                                    @enderror
+                                </div>
+                            </div>
+
+                            <div class="mb-3">
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" id="is_active" name="is_active" value="1" 
+                                           {{ old('is_active', $quiz->is_active) ? 'checked' : '' }}>
+                                    <label class="form-check-label" for="is_active">
+                                        Quiz is active and available to students
+                                    </label>
+                                </div>
+                            </div>
+
+                            <div class="d-flex justify-content-between">
+                                <a href="{{ route('quizzes.show', [$quiz->module->course->slug, $quiz->module->id, $quiz->id]) }}" class="btn btn-secondary">
+                                    <i class="bi bi-arrow-left me-2"></i>Cancel
+                                </a>
+                                <button type="submit" class="btn btn-primary">
+                                    <i class="bi bi-check me-2"></i>Update Quiz
+                                </button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</x-app-layout>
+2. resources/views/questions/edit.blade.php
+php<x-app-layout>
+    <x-slot name="title">Edit Question - {{ config('app.name') }}</x-slot>
+
+    <div class="container py-4">
+        <div class="row justify-content-center">
+            <div class="col-lg-8">
+                <div class="card">
+                    <div class="card-header">
+                        <h4 class="mb-0">Edit Question</h4>
+                    </div>
+                    <div class="card-body">
+                        <form action="{{ route('questions.update', [$question->quiz->module->course->slug, $question->quiz->module->id, $question->quiz->id, $question->id]) }}" method="POST">
+                            @csrf
+                            @method('PUT')
+                            
+                            <div class="mb-3">
+                                <label for="question" class="form-label">Question</label>
+                                <textarea class="form-control @error('question') is-invalid @enderror" 
+                                          id="question" name="question" rows="3" required>{{ old('question', $question->question) }}</textarea>
+                                @error('question')
+                                    <div class="invalid-feedback">{{ $message }}</div>
+                                @enderror
+                            </div>
+
+                            <div class="mb-3">
+                                <label for="type" class="form-label">Question Type</label>
+                                <select class="form-select @error('type') is-invalid @enderror" id="type" name="type" required onchange="toggleOptions()">
+                                    <option value="">Select Type</option>
+                                    <option value="multiple_choice" {{ old('type', $question->type) === 'multiple_choice' ? 'selected' : '' }}>Multiple Choice</option>
+                                    <option value="true_false" {{ old('type', $question->type) === 'true_false' ? 'selected' : '' }}>True/False</option>
+                                </select>
+                                @error('type')
+                                    <div class="invalid-feedback">{{ $message }}</div>
+                                @enderror
+                            </div>
+
+                            <div id="options-section" style="display: {{ old('type', $question->type) === 'multiple_choice' ? 'block' : 'none' }};">
+                                <label class="form-label">Answer Options</label>
+                                <div id="options-container">
+                                    @if(old('options', $question->options))
+                                        @foreach(old('options', $question->options) as $index => $option)
+                                            <div class="input-group mb-2">
+                                                <span class="input-group-text">{{ chr(65 + $index) }}</span>
+                                                <input type="text" class="form-control" name="options[]" value="{{ $option }}" placeholder="Option {{ chr(65 + $index) }}">
+                                                @if($index > 1)
+                                                    <button type="button" class="btn btn-outline-danger" onclick="removeOption(this)">Remove</button>
+                                                @endif
+                                            </div>
+                                        @endforeach
+                                    @else
+                                        <div class="input-group mb-2">
+                                            <span class="input-group-text">A</span>
+                                            <input type="text" class="form-control" name="options[]" placeholder="Option A">
+                                        </div>
+                                        <div class="input-group mb-2">
+                                            <span class="input-group-text">B</span>
+                                            <input type="text" class="form-control" name="options[]" placeholder="Option B">
+                                        </div>
+                                    @endif
+                                </div>
+                                <button type="button" class="btn btn-sm btn-outline-primary" onclick="addOption()">Add Option</button>
+                                @error('options')
+                                    <div class="text-danger small">{{ $message }}</div>
+                                @enderror
+                            </div>
+
+                            <div class="mb-3">
+                                <label for="correct_answer" class="form-label">Correct Answer</label>
+                                <input type="text" class="form-control @error('correct_answer') is-invalid @enderror" 
+                                       id="correct_answer" name="correct_answer" value="{{ old('correct_answer', $question->correct_answer) }}" required>
+                                @error('correct_answer')
+                                    <div class="invalid-feedback">{{ $message }}</div>
+                                @enderror
+                                <div class="form-text">For multiple choice, enter the exact text of the correct option. For true/false, enter "True" or "False".</div>
+                            </div>
+
+                            <div class="mb-3">
+                                <label for="explanation" class="form-label">Explanation (Optional)</label>
+                                <textarea class="form-control @error('explanation') is-invalid @enderror" 
+                                          id="explanation" name="explanation" rows="2">{{ old('explanation', $question->explanation) }}</textarea>
+                                @error('explanation')
+                                    <div class="invalid-feedback">{{ $message }}</div>
+                                @enderror
+                            </div>
+
+                            <div class="mb-3">
+                                <label for="points" class="form-label">Points</label>
+                                <input type="number" class="form-control @error('points') is-invalid @enderror" 
+                                       id="points" name="points" value="{{ old('points', $question->points) }}" min="1" required>
+                                @error('points')
+                                    <div class="invalid-feedback">{{ $message }}</div>
+                                @enderror
+                            </div>
+
+                            <div class="d-flex justify-content-between">
+                                <a href="{{ route('quizzes.show', [$question->quiz->module->course->slug, $question->quiz->module->id, $question->quiz->id]) }}" class="btn btn-secondary">
+                                    <i class="bi bi-arrow-left me-2"></i>Cancel
+                                </a>
+                                <button type="submit" class="btn btn-primary">
+                                    <i class="bi bi-check me-2"></i>Update Question
+                                </button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    @push('scripts')
+    <script>
+        function toggleOptions() {
+            const type = document.getElementById('type').value;
+            const optionsSection = document.getElementById('options-section');
+            const correctAnswer = document.getElementById('correct_answer');
+            
+            if (type === 'multiple_choice') {
+                optionsSection.style.display = 'block';
+                correctAnswer.placeholder = 'Enter the exact text of the correct option';
+            } else if (type === 'true_false') {
+                optionsSection.style.display = 'none';
+                correctAnswer.placeholder = 'Enter "True" or "False"';
+            } else {
+                optionsSection.style.display = 'none';
+                correctAnswer.placeholder = '';
+            }
+        }
+
+        function addOption() {
+            const container = document.getElementById('options-container');
+            const optionCount = container.children.length;
+            const letter = String.fromCharCode(65 + optionCount);
+            
+            const newOption = document.createElement('div');
+            newOption.className = 'input-group mb-2';
+            newOption.innerHTML = `
+                <span class="input-group-text">${letter}</span>
+                <input type="text" class="form-control" name="options[]" placeholder="Option ${letter}">
+                <button type="button" class="btn btn-outline-danger" onclick="removeOption(this)">Remove</button>
+            `;
+            
+            container.appendChild(newOption);
+        }
+
+        function removeOption(button) {
+            button.parentElement.remove();
+            updateOptionLabels();
+        }
+
+        function updateOptionLabels() {
+            const container = document.getElementById('options-container');
+            const options = container.children;
+            
+            for (let i = 0; i < options.length; i++) {
+                const letter = String.fromCharCode(65 + i);
+                const span = options[i].querySelector('.input-group-text');
+                const input = options[i].querySelector('input');
+                
+                span.textContent = letter;
+                input.placeholder = `Option ${letter}`;
+            }
+        }
+
+        document.addEventListener('DOMContentLoaded', function() {
+            toggleOptions();
+        });
+    </script>
+    @endpush
+</x-app-layout>
+3. resources/views/admin/users/create.blade.php
+php<x-app-layout>
+    <x-slot name="title">Create User - Admin - {{ config('app.name') }}</x-slot>
+
+    <div class="container py-4">
+        <div class="row justify-content-center">
+            <div class="col-lg-8">
+                <div class="card">
+                    <div class="card-header">
+                        <h4 class="mb-0">Create New User</h4>
+                    </div>
+                    <div class="card-body">
+                        <form action="{{ route('admin.users.store') }}" method="POST" enctype="multipart/form-data">
+                            @csrf
+                            
+                            <div class="row mb-3">
+                                <div class="col-md-6">
+                                    <label for="name" class="form-label">Full Name</label>
+                                    <input type="text" class="form-control @error('name') is-invalid @enderror" 
+                                           id="name" name="name" value="{{ old('name') }}" required>
+                                    @error('name')
+                                        <div class="invalid-feedback">{{ $message }}</div>
+                                    @enderror
+                                </div>
+                                <div class="col-md-6">
+                                    <label for="email" class="form-label">Email Address</label>
+                                    <input type="email" class="form-control @error('email') is-invalid @enderror" 
+                                           id="email" name="email" value="{{ old('email') }}" required>
+                                    @error('email')
+                                        <div class="invalid-feedback">{{ $message }}</div>
+                                    @enderror
+                                </div>
+                            </div>
+
+                            <div class="row mb-3">
+                                <div class="col-md-6">
+                                    <label for="password" class="form-label">Password</label>
+                                    <input type="password" class="form-control @error('password') is-invalid @enderror" 
+                                           id="password" name="password" required>
+                                    @error('password')
+                                        <div class="invalid-feedback">{{ $message }}</div>
+                                    @enderror
+                                </div>
+                                <div class="col-md-6">
+                                    <label for="password_confirmation" class="form-label">Confirm Password</label>
+                                    <input type="password" class="form-control" 
+                                           id="password_confirmation" name="password_confirmation" required>
+                                </div>
+                            </div>
+
+                            <div class="row mb-3">
+                                <div class="col-md-6">
+                                    <label for="role" class="form-label">Role</label>
+                                    <select class="form-select @error('role') is-invalid @enderror" id="role" name="role" required>
+                                        <option value="">Select Role</option>
+                                        <option value="student" {{ old('role') === 'student' ? 'selected' : '' }}>Student</option>
+                                        <option value="teacher" {{ old('role') === 'teacher' ? 'selected' : '' }}>Teacher</option>
+                                        <option value="expert" {{ old('role') === 'expert' ? 'selected' : '' }}>Expert</option>
+                                        <option value="moderator" {{ old('role') === 'moderator' ? 'selected' : '' }}>Moderator</option>
+                                        <option value="admin" {{ old('role') === 'admin' ? 'selected' : '' }}>Admin</option>
+                                    </select>
+                                    @error('role')
+                                        <div class="invalid-feedback">{{ $message }}</div>
+                                    @enderror
+                                </div>
+                                <div class="col-md-6">
+                                    <label for="level" class="form-label">Experience Level</label>
+                                    <select class="form-select @error('level') is-invalid @enderror" id="level" name="level" required>
+                                        <option value="beginner" {{ old('level') === 'beginner' ? 'selected' : '' }}>Beginner</option>
+                                        <option value="intermediate" {{ old('level') === 'intermediate' ? 'selected' : '' }}>Intermediate</option>
+                                        <option value="advanced" {{ old('level') === 'advanced' ? 'selected' : '' }}>Advanced</option>
+                                    </select>
+                                    @error('level')
+                                        <div class="invalid-feedback">{{ $message }}</div>
+                                    @enderror
+                                </div>
+                            </div>
+
+                            <div class="mb-3">
+                                <label for="institution" class="form-label">Institution/School (Optional)</label>
+                                <input type="text" class="form-control @error('institution') is-invalid @enderror" 
+                                       id="institution" name="institution" value="{{ old('institution') }}">
+                                @error('institution')
+                                    <div class="invalid-feedback">{{ $message }}</div>
+                                @enderror
+                            </div>
+
+                            <div class="mb-3">
+                                <label for="bio" class="form-label">Bio (Optional)</label>
+                                <textarea class="form-control @error('bio') is-invalid @enderror" 
+                                          id="bio" name="bio" rows="3">{{ old('bio') }}</textarea>
+                                @error('bio')
+                                    <div class="invalid-feedback">{{ $message }}</div>
+                                @enderror
+                            </div>
+
+                            <div class="mb-3">
+                                <label for="avatar" class="form-label">Profile Picture (Optional)</label>
+                                <input type="file" class="form-control @error('avatar') is-invalid @enderror" 
+                                       id="avatar" name="avatar" accept="image/*">
+                                @error('avatar')
+                                    <div class="invalid-feedback">{{ $message }}</div>
+                                @enderror
+                                <div class="form-text">JPG, PNG, GIF up to 2MB</div>
+                            </div>
+
+                            <div class="mb-3">
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" id="is_verified" name="is_verified" value="1" 
+                                           {{ old('is_verified') ? 'checked' : '' }}>
+                                    <label class="form-check-label" for="is_verified">
+                                        Mark user as verified
+                                    </label>
+                                </div>
+                            </div>
+
+                            <div class="d-flex justify-content-between">
+                                <a href="{{ route('admin.users.index') }}" class="btn btn-secondary">
+                                    <i class="bi bi-arrow-left me-2"></i>Cancel
+                                </a>
+                                <button type="submit" class="btn btn-primary">
+                                    <i class="bi bi-check me-2"></i>Create User
+                                </button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</x-app-layout>
+4. resources/views/admin/users/edit.blade.php
+php<x-app-layout>
+    <x-slot name="title">Edit User - Admin - {{ config('app.name') }}</x-slot>
+
+    <div class="container py-4">
+        <div class="row justify-content-center">
+            <div class="col-lg-8">
+                <div class="card">
+                    <div class="card-header">
+                        <h4 class="mb-0">Edit User: {{ $user->name }}</h4>
+                    </div>
+                    <div class="card-body">
+                        <form action="{{ route('admin.users.update', $user) }}" method="POST" enctype="multipart/form-data">
+                            @csrf
+                            @method('PUT')
+                            
+                            <div class="row mb-3">
+                                <div class="col-md-4 text-center">
+                                    <img src="{{ $user->avatar_url }}" alt="Avatar" class="avatar avatar-lg mb-3" id="avatar-preview">
+                                    <div>
+                                        <input type="file" class="form-control @error('avatar') is-invalid @enderror" 
+                                               name="avatar" accept="image/*" onchange="previewAvatar(this)">
+                                        @error('avatar')
+                                            <div class="invalid-feedback">{{ $message }}</div>
+                                        @enderror
+                                        <div class="form-text">JPG, PNG, GIF up to 2MB</div>
+                                    </div>
+                                </div>
+                                <div class="col-md-8">
+                                    <div class="mb-3">
+                                        <label for="name" class="form-label">Full Name</label>
+                                        <input type="text" class="form-control @error('name') is-invalid @enderror" 
+                                               id="name" name="name" value="{{ old('name', $user->name) }}" required>
+                                        @error('name')
+                                            <div class="invalid-feedback">{{ $message }}</div>
+                                        @enderror
+                                    </div>
+
+                                    <div class="mb-3">
+                                        <label for="email" class="form-label">Email Address</label>
+                                        <input type="email" class="form-control @error('email') is-invalid @enderror" 
+                                               id="email" name="email" value="{{ old('email', $user->email) }}" required>
+                                        @error('email')
+                                            <div class="invalid-feedback">{{ $message }}</div>
+                                        @enderror
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="row mb-3">
+                                <div class="col-md-6">
+                                    <label for="role" class="form-label">Role</label>
+                                    <select class="form-select @error('role') is-invalid @enderror" id="role" name="role" required>
+                                        <option value="student" {{ old('role', $user->role) === 'student' ? 'selected' : '' }}>Student</option>
+                                        <option value="teacher" {{ old('role', $user->role) === 'teacher' ? 'selected' : '' }}>Teacher</option>
+                                        <option value="expert" {{ old('role', $user->role) === 'expert' ? 'selected' : '' }}>Expert</option>
+                                        <option value="moderator" {{ old('role', $user->role) === 'moderator' ? 'selected' : '' }}>Moderator</option>
+                                        <option value="admin" {{ old('role', $user->role) === 'admin' ? 'selected' : '' }}>Admin</option>
+                                    </select>
+                                    @error('role')
+                                        <div class="invalid-feedback">{{ $message }}</div>
+                                    @enderror
+                                </div>
+                                <div class="col-md-6">
+                                    <label for="level" class="form-label">Experience Level</label>
+                                    <select class="form-select @error('level') is-invalid @enderror" id="level" name="level" required>
+                                        <option value="beginner" {{ old('level', $user->level) === 'beginner' ? 'selected' : '' }}>Beginner</option>
+                                        <option value="intermediate" {{ old('level', $user->level) === 'intermediate' ? 'selected' : '' }}>Intermediate</option>
+                                        <option value="advanced" {{ old('level', $user->level) === 'advanced' ? 'selected' : '' }}>Advanced</option>
+                                    </select>
+                                    @error('level')
+                                        <div class="invalid-feedback">{{ $message }}</div>
+                                    @enderror
+                                </div>
+                            </div>
+
+                            <div class="mb-3">
+                                <label for="institution" class="form-label">Institution/School</label>
+                                <input type="text" class="form-control @error('institution') is-invalid @enderror" 
+                                       id="institution" name="institution" value="{{ old('institution', $user->institution) }}">
+                                @error('institution')
+                                    <div class="invalid-feedback">{{ $message }}</div>
+                                @enderror
+                            </div>
+
+                            <div class="mb-3">
+                                <label for="bio" class="form-label">Bio</label>
+                                <textarea class="form-control @error('bio') is-invalid @enderror" 
+                                          id="bio" name="bio" rows="3">{{ old('bio', $user->bio) }}</textarea>
+                                @error('bio')
+                                    <div class="invalid-feedback">{{ $message }}</div>
+                                @enderror
+                            </div>
+
+                            <div class="mb-3">
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" id="is_verified" name="is_verified" value="1" 
+                                           {{ old('is_verified', $user->is_verified) ? 'checked' : '' }}>
+                                    <label class="form-check-label" for="is_verified">
+                                        User is verified
+                                    </label>
+                                </div>
+                            </div>
+
+                            <div class="d-flex justify-content-between">
+                                <a href="{{ route('admin.users.index') }}" class="btn btn-secondary">
+                                    <i class="bi bi-arrow-left me-2"></i>Cancel
+                                </a>
+                                <button type="submit" class="btn btn-primary">
+                                    <i class="bi bi-check me-2"></i>Update User
+                                </button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+
+                <div class="card mt-4">
+                    <div class="card-header">
+                        <h5 class="mb-0">Reset Password</h5>
+                    </div>
+                    <div class="card-body">
+                        <form action="{{ route('admin.users.reset-password', $user) }}" method="POST">
+                            @csrf
+                            <div class="row mb-3">
+                                <div class="col-md-6">
+                                    <label for="password" class="form-label">New Password</label>
+                                    <input type="password" class="form-control @error('password') is-invalid @enderror" 
+                                           id="password" name="password" required>
+                                    @error('password')
+                                        <div class="invalid-feedback">{{ $message }}</div>
+                                    @enderror
+                                </div>
+                                <div class="col-md-6">
+                                    <label for="password_confirmation" class="form-label">Confirm Password</label>
+                                    <input type="password" class="form-control" 
+                                           id="password_confirmation" name="password_confirmation" required>
+                                </div>
+                            </div>
+                            <button type="submit" class="btn btn-warning">
+                                <i class="bi bi-key me-2"></i>Reset Password
+                            </button>
+                        </form>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    @push('scripts')
+    <script>
+        function previewAvatar(input) {
+            if (input.files && input.files[0]) {
+                const reader = new FileReader();
+                reader.onload = function(e) {
+                    document.getElementById('avatar-preview').src = e.target.result;
+                };
+                reader.readAsDataURL(input.files[0]);
+            }
+        }
+    </script>
+    @endpush
+</x-app-layout>
+5. resources/views/admin/users/show.blade.php
+php<x-app-layout>
+    <x-slot name="title">{{ $user->name }} - User Details - Admin - {{ config('app.name') }}</x-slot>
+
+    <div class="container py-4">
+        <div class="row">
+            <div class="col-lg-4">
+                <div class="card">
+                    <div class="card-body text-center">
+                        <img src="{{ $user->avatar_url }}" alt="{{ $user->name }}" class="avatar avatar-lg mb-3">
+                        <h4>{{ $user->name }}</h4>
+                        <p class="text-muted">{{ $user->email }}</p>
+                        <span class="badge bg-{{ $user->role === 'admin' ? 'danger' : ($user->role === 'moderator' ? 'warning' : ($user->role === 'teacher' ? 'info' : ($user->role === 'expert' ? 'success' : 'secondary'))) }} fs-6 mb-3">
+                            {{ ucfirst($user->role) }}
+                        </span>
+                        
+                        @if($user->bio)
+                            <p class="text-muted">{{ $user->bio }}</p>
+                        @endif
+
+                        @if($user->institution)
+                            <div class="mb-2">
+                                <i class="bi bi-building me-2 text-muted"></i>
+                                <span class="text-muted">{{ $user->institution }}</span>
+                            </div>
+                        @endif
+
+                        <div class="mb-3">
+                            <i class="bi bi-trophy me-2 text-warning"></i>
+                            <span class="fw-bold">{{ number_format($user->points) }}</span> points
+                        </div>
+
+                        <div class="mb-3">
+                            <span class="badge bg-info">{{ ucfirst($user->level) }} Level</span>
+                            @if($user->is_verified)
+                                <span class="badge bg-success">
+                                    <i class="bi bi-check-circle me-1"></i>Verified
+                                </span>
+                            @else
+                                <span class="badge bg-warning">
+                                    <i class="bi bi-clock me-1"></i>Unverified
+                                </span>
+                            @endif
+                        </div>
+
+                        <div class="d-grid gap-2">
+                            <a href="{{ route('admin.users.edit', $user) }}" class="btn btn-primary">
+                                <i class="bi bi-pencil me-2"></i>Edit User
+                            </a>
+                            @if($user->id !== auth()->id())
+                                @if($user->is_verified)
+                                    <form method="POST" action="{{ route('admin.users.unverify', $user) }}">
+                                        @csrf
+                                        <button type="submit" class="btn btn-warning w-100">Unverify User</button>
+                                    </form>
+                                @else
+                                    <form method="POST" action="{{ route('admin.users.verify', $user) }}">
+                                        @csrf
+                                        <button type="submit" class="btn btn-success w-100">Verify User</button>
+                                    </form>
+                                @endif
+                            @endif
+                        </div>
+                    </div>
+                </div>
+
+                <div class="card mt-4">
+                    <div class="card-header">
+                        <h6 class="mb-0">Account Info</h6>
+                    </div>
+                    <div class="card-body">
+                        <p><strong>Joined:</strong> {{ $user->created_at->format('M d, Y') }}</p>
+                        <p><strong>Last Updated:</strong> {{ $user->updated_at->format('M d, Y') }}</p>
+                        <p><strong>Email Verified:</strong> 
+                            @if($user->email_verified_at)
+                                <span class="text-success">{{ $user->email_verified_at->format('M d, Y') }}</span>
+                            @else
+                                <span class="text-danger">Not verified</span>
+                            @endif
+                        </p>
+                    </div>
+                </div>
+            </div>
+
+            <div class="col-lg-8">
+                <div class="row mb-4">
+                    <div class="col-md-3">
+                        <div class="card bg-primary text-white">
+                            <div class="card-body text-center">
+                                <i class="bi bi-book display-6 mb-2"></i>
+                                <h3>{{ $user->courses->count() }}</h3>
+                                <small>Courses {{ $user->role === 'student' ? 'Enrolled' : 'Created' }}</small>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="card bg-success text-white">
+                            <div class="card-body text-center">
+                                <i class="bi bi-chat-dots display-6 mb-2"></i>
+                                <h3>{{ $user->forumThreads->count() }}</h3>
+                                <small>Forum Threads</small>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="card bg-info text-white">
+                            <div class="card-body text-center">
+                                <i class="bi bi-chat display-6 mb-2"></i>
+                                <h3>{{ $user->forumReplies->count() }}</h3>
+                                <small>Forum Replies</small>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="card bg-warning text-white">
+                            <div class="card-body text-center">
+                                <i class="bi bi-question-circle display-6 mb-2"></i>
+                                <h3>{{ $user->homework->count() }}</h3>
+                                <small>Homework Questions</small>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                @if($user->role === 'student')
+                    <div class="card">
+                        <div class="card-header">
+                            <h5 class="mb-0">Enrolled Courses</h5>
+                        </div>
+                        <div class="card-body">
+                            @if($user->enrollments->count() > 0)
+                                @foreach($user->enrollments as $course)
+                                    <div class="d-flex align-items-center mb-3 pb-3 {{ !$loop->last ? 'border-bottom' : '' }}">
+                                        <img src="{{ $course->thumbnail_url }}" alt="{{ $course->title }}" class="rounded me-3" style="width: 60px; height: 60px; object-fit: cover;">
+                                        <div class="flex-grow-1">
+                                            <h6 class="mb-1">{{ $course->title }}</h6>
+                                            <small class="text-muted">by {{ $course->instructor->name }}</small>
+                                            @if(isset($course->pivot))
+                                                <div class="progress mt-2" style="height: 6px;">
+                                                    <div class="progress-bar" style="width: {{ $course->pivot->progress_percentage }}%"></div>
+                                                </div>
+                                                <small class="text-muted">{{ $course->pivot->progress_percentage }}% completed</small>
+                                            @endif
+                                        </div>
+                                        <div class="text-end">
+                                            <a href="{{ route('courses.show', $course->slug) }}" class="btn btn-sm btn-outline-primary">View</a>
+                                        </div>
+                                    </div>
+                                @endforeach
+                            @else
+                                <p class="text-muted text-center">No enrolled courses</p>
+                            @endif
+                        </div>
+                    </div>
+                @else
+                    <div class="card">
+                        <div class="card-header">
+                            <h5 class="mb-0">Created Courses</h5>
+                        </div>
+                        <div class="card-body">
+                            @if($user->courses->count() > 0)
+                                @foreach($user->courses as $course)
+                                    <div class="d-flex align-items-center mb-3 pb-3 {{ !$loop->last ? 'border-bottom' : '' }}">
+                                        <img src="{{ $course->thumbnail_url }}" alt="{{ $course->title }}" class="rounded me-3" style="width: 60px; height: 60px; object-fit: cover;">
+                                        <div class="flex-grow-1">
+                                            <h6 class="mb-1">{{ $course->title }}</h6>
+                                            <small class="text-muted">{{ $course->category }} • {{ ucfirst($course->level) }}</small>
+                                            <div class="mt-1">
+                                                <span class="badge bg-{{ $course->is_active ? 'success' : 'secondary' }}">
+                                                    {{ $course->is_active ? 'Active' : 'Inactive' }}
+                                                </span>
+                                            </div>
+                                        </div>
+                                        <div class="text-end">
+                                            <a href="{{ route('courses.show', $course->slug) }}" class="btn btn-sm btn-outline-primary">View</a>
+                                        </div>
+                                    </div>
+                                @endforeach
+                            @else
+                                <p class="text-muted text-center">No created courses</p>
+                            @endif
+                        </div>
+                    </div>
+                @endif
+
+                <div class="card mt-4">
+                    <div class="card-header">
+                        <h5 class="mb-0">Recent Forum Activity</h5>
+                    </div>
+                    <div class="card-body">
+                        @if($user->forumThreads->count() > 0)
+                            @foreach($user->forumThreads->take(5) as $thread)
+                                <div class="mb-3 pb-3 {{ !$loop->last ? 'border-bottom' : '' }}">
+                                    <h6 class="mb-1">
+                                        <a href="{{ route('forum.thread', [$thread->category->slug, $thread->slug]) }}" class="text-decoration-none">
+                                            {{ $thread->title }}
+                                        </a>
+                                    </h6>
+                                    <small class="text-muted">
+                                        in {{ $thread->category->name }} • {{ $thread->created_at->diffForHumans() }}
+                                        <span class="mx-2">•</span>
+                                        <i class="bi bi-eye me-1"></i>{{ $thread->views }}
+                                        <span class="mx-2">•</span>
+                                        <i class="bi bi-chat me-1"></i>{{ $thread->replies_count }}
+                                    </small>
+                                </div>
+                            @endforeach
+                        @else
+                            <p class="text-muted text-center">No forum activity</p>
+                        @endif
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</x-app-layout>
+6. resources/views/final-projects/create.blade.php
+php<x-app-layout>
+    <x-slot name="title">Create Final Project - {{ config('app.name') }}</x-slot>
+
+    <div class="container py-4">
+        <div class="row justify-content-center">
+            <div class="col-lg-8">
+                <div class="card">
+                    <div class="card-header">
+                        <h4 class="mb-0">Create Final Project for: {{ $course->title }}</h4>
+                    </div>
+                    <div class="card-body">
+                        <form action="{{ route('final-projects.store', $course->slug) }}" method="POST" enctype="multipart/form-data">
+                            @csrf
+                            
+                            <div class="mb-3">
+                                <label for="title" class="form-label">Project Title</label>
+                                <input type="text" class="form-control @error('title') is-invalid @enderror" 
+                                       id="title" name="title" value="{{ old('title') }}" required>
+                                @error('title')
+                                    <div class="invalid-feedback">{{ $message }}</div>
+                                @enderror
+                            </div>
+
+                            <div class="mb-3">
+                                <label for="description" class="form-label">Project Description</label>
+                                <textarea class="form-control @error('description') is-invalid @enderror" 
+                                          id="description" name="description" rows="6" required>{{ old('description') }}</textarea>
+                                @error('description')
+                                    <div class="invalid-feedback">{{ $message }}</div>
+                                @enderror
+                                <div class="form-text">Provide detailed instructions for the final project</div>
+                            </div>
+
+                            <div class="mb-3">
+                                <label for="deadline" class="form-label">Submission Deadline</label>
+                                <input type="datetime-local" class="form-control @error('deadline') is-invalid @enderror" 
+                                       id="deadline" name="deadline" value="{{ old('deadline') }}" required>
+                                @error('deadline')
+                                    <div class="invalid-feedback">{{ $message }}</div>
+                                @enderror
+                            </div>
+
+                            <div class="mb-3">
+                                <label for="attachments" class="form-label">Project Files/Resources (Optional)</label>
+                                <input type="file" class="form-control @error('attachments.*') is-invalid @enderror" 
+                                       id="attachments" name="attachments[]" multiple>
+                                @error('attachments.*')
+                                    <div class="invalid-feedback">{{ $message }}</div>
+                                @enderror
+                                <div class="form-text">Upload template files, examples, or resources. Max 10MB per file.</div>
+                            </div>
+
+                            <div class="mb-3">
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" id="is_active" name="is_active" value="1" 
+                                           {{ old('is_active', true) ? 'checked' : '' }}>
+                                    <label class="form-check-label" for="is_active">
+                                        Project is active and available for submission
+                                    </label>
+                                </div>
+                            </div>
+
+                            <div class="d-flex justify-content-between">
+                                <a href="{{ route('courses.show', $course->slug) }}" class="btn btn-secondary">
+                                    <i class="bi bi-arrow-left me-2"></i>Cancel
+                                </a>
+                                <button type="submit" class="btn btn-primary">
+                                    <i class="bi bi-check me-2"></i>Create Project
+                                </button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</x-app-layout>
+7. resources/views/final-projects/show.blade.php
+php<x-app-layout>
+    <x-slot name="title">{{ $finalProject->title }} - Final Project - {{ config('app.name') }}</x-slot>
+
+    <div class="container py-4">
+        <div class="row">
+            <div class="col-lg-8">
+                <div class="card">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <h4 class="mb-0">{{ $finalProject->title }}</h4>
+                        @if(auth()->check() && (auth()->id() === $finalProject->course->instructor_id || auth()->user()->isAdmin()))
+                            <div class="btn-group">
+                                <a href="{{ route('final-projects.submissions', [$finalProject->course->slug, $finalProject->id]) }}" class="btn btn-info btn-sm">View Submissions</a>
+                                <a href="{{ route('final-projects.edit', [$finalProject->course->slug, $finalProject->id]) }}" class="btn btn-outline-secondary btn-sm">Edit</a>
+                            </div>
+                        @endif
+                    </div>
+                    <div class="card-body">
+                        <div class="mb-4">
+                            <h6>Project Description:</h6>
+                            <div class="p-3 bg-light rounded">
+                                {!! nl2br(e($finalProject->description)) !!}
+                            </div>
+                        </div>
+
+                        @if($finalProject->attachments && count($finalProject->attachments) > 0)
+                            <div class="mb-4">
+                                <h6>Project Resources:</h6>
+                                <div class="list-group">
+                                    @foreach($finalProject->attachments as $attachment)
+                                        <div class="list-group-item d-flex justify-content-between align-items-center">
+                                            <div>
+                                                <i class="bi bi-file-earmark me-2"></i>
+                                                {{ $attachment['name'] }}
+                                                <small class="text-muted">({{ number_format($attachment['size'] / 1024, 2) }} KB)</small>
+                                            </div>
+                                            <a href="{{ asset('storage/' . $attachment['path']) }}" target="_blank" class="btn btn-sm btn-outline-primary">
+                                                <i class="bi bi-download me-1"></i>Download
+                                            </a>
+                                        </div>
+                                    @endforeach
+                                </div>
+                            </div>
+                        @endif
+
+                        <div class="alert alert-info">
+                            <i class="bi bi-calendar me-2"></i>
+                            <strong>Deadline:</strong> {{ $finalProject->deadline->format('M d, Y \a\t H:i') }}
+                            @if($finalProject->deadline->isPast())
+                                <span class="badge bg-danger ms-2">Overdue</span>
+                            @else
+                                <span class="badge bg-success ms-2">{{ $finalProject->deadline->diffForHumans() }}</span>
+                            @endif
+                        </div>
+
+                        @auth
+                            @if($submission)
+                                <div class="card border-{{ $submission->status === 'graded' ? 'success' : 'warning' }}">
+                                    <div class="card-header">
+                                        <h6 class="mb-0">Your Submission</h6>
+                                    </div>
+                                    <div class="card-body">
+                                        <div class="d-flex justify-content-between align-items-center mb-3">
+                                            <span class="badge bg-{{ $submission->status === 'graded' ? 'success' : 'warning' }} fs-6">
+                                                {{ ucfirst($submission->status) }}
+                                            </span>
+                                            <small class="text-muted">Submitted {{ $submission->created_at->diffForHumans() }}</small>
+                                        </div>
+
+                                        @if($submission->notes)
+                                            <div class="mb-3">
+                                                <h6>Your Notes:</h6>
+                                                <p class="text-muted">{{ $submission->notes }}</p>
+                                            </div>
+                                        @endif
+
+                                        <div class="mb-3">
+                                            <h6>Submitted Files:</h6>
+                                            <div class="list-group">
+                                                @foreach($submission->attachments as $attachment)
+                                                    <div class="list-group-item d-flex justify-content-between align-items-center">
+                                                        <div>
+                                                            <i class="bi bi-file-earmark me-2"></i>
+                                                            {{ $attachment['name'] }}
+                                                            <small class="text-muted">({{ number_format($attachment['size'] / 1024, 2) }} KB)</small>
+                                                        </div>
+                                                        <a href="{{ asset('storage/' . $attachment['path']) }}" target="_blank" class="btn btn-sm btn-outline-primary">
+                                                            Download
+                                                        </a>
+                                                    </div>
+                                                @endforeach
+                                            </div>
+                                        </div>
+
+                                        @if($submission->status === 'graded')
+                                            <div class="alert alert-success">
+                                                <h6><i class="bi bi-trophy me-2"></i>Graded</h6>
+                                                <p class="mb-1"><strong>Score:</strong> {{ $submission->score }}/100</p>
+                                                @if($submission->feedback)
+                                                    <p class="mb-0"><strong>Feedback:</strong> {{ $submission->feedback }}</p>
+                                                @endif
+                                                <small class="text-muted">Graded by {{ $submission->grader->name }} on {{ $submission->graded_at->format('M d, Y') }}</small>
+                                            </div>
+                                        @endif
+                                    </div>
+                                </div>
+                            @else
+                                @if($finalProject->deadline->isFuture())
+                                    <div class="card">
+                                        <div class="card-header">
+                                            <h6 class="mb-0">Submit Your Project</h6>
+                                        </div>
+                                        <div class="card-body">
+                                            <form action="{{ route('final-projects.submit', [$finalProject->course->slug, $finalProject->id]) }}" method="POST" enctype="multipart/form-data">
+                                                @csrf
+                                                
+                                                <div class="mb-3">
+                                                    <label for="notes" class="form-label">Notes (Optional)</label>
+                                                    <textarea class="form-control @error('notes') is-invalid @enderror" 
+                                                              id="notes" name="notes" rows="3">{{ old('notes') }}</textarea>
+                                                    @error('notes')
+                                                        <div class="invalid-feedback">{{ $message }}</div>
+                                                    @enderror
+                                                    <div class="form-text">Add any notes or comments about your submission</div>
+                                                </div>
+
+                                                <div class="mb-3">
+                                                    <label for="attachments" class="form-label">Project Files</label>
+                                                    <input type="file" class="form-control @error('attachments.*') is-invalid @enderror" 
+                                                           id="attachments" name="attachments[]" multiple required>
+                                                    @error('attachments.*')
+                                                        <div class="invalid-feedback">{{ $message }}</div>
+                                                    @enderror
+                                                    <div class="form-text">Upload your project files. Max 10MB per file.</div>
+                                                </div>
+
+                                                <button type="submit" class="btn btn-primary">
+                                                    <i class="bi bi-upload me-2"></i>Submit Project
+                                                </button>
+                                            </form>
+                                        </div>
+                                    </div>
+                                @else
+                                    <div class="alert alert-danger">
+                                        <i class="bi bi-exclamation-triangle me-2"></i>
+                                        The submission deadline has passed. You can no longer submit this project.
+                                    </div>
+                                @endif
+                            @endif
+                        @else
+                            <div class="text-center">
+                                <p class="text-muted">Please sign in to submit your project.</p>
+                                <a href="{{ route('login') }}" class="btn btn-primary">Sign In</a>
+                            </div>
+                        @endauth
+                    </div>
+                </div>
+            </div>
+
+            <div class="col-lg-4">
+                <div class="card">
+                    <div class="card-header">
+                        <h6 class="mb-0">Project Info</h6>
+                    </div>
+                    <div class="card-body">
+                        <p><strong>Course:</strong> {{ $finalProject->course->title }}</p>
+                        <p><strong>Instructor:</strong> {{ $finalProject->course->instructor->name }}</p>
+                        <p><strong>Created:</strong> {{ $finalProject->created_at->format('M d, Y') }}</p>
+                        <p><strong>Deadline:</strong> {{ $finalProject->deadline->format('M d, Y H:i') }}</p>
+                        <p><strong>Status:</strong> 
+                            <span class="badge bg-{{ $finalProject->is_active ? 'success' : 'secondary' }}">
+                                {{ $finalProject->is_active ? 'Active' : 'Inactive' }}
+                            </span>
+                        </p>
+                        
+                        <div class="mt-3">
+                            <a href="{{ route('courses.show', $finalProject->course->slug) }}" class="btn btn-outline-primary btn-sm w-100">
+                                <i class="bi bi-arrow-left me-1"></i>Back to Course
+                            </a>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</x-app-layout>
+8. resources/views/final-projects/edit.blade.php
+php<x-app-layout>
+    <x-slot name="title">Edit Final Project - {{ config('app.name') }}</x-slot>
+
+    <div class="container py-4">
+        <div class="row justify-content-center">
+            <div class="col-lg-8">
+                <div class="card">
+                    <div class="card-header">
+                        <h4 class="mb-0">Edit Final Project: {{ $finalProject->title }}</h4>
+                    </div>
+                    <div class="card-body">
+                        <form action="{{ route('final-projects.update', [$finalProject->course->slug, $finalProject->id]) }}" method="POST" enctype="multipart/form-data">
+                            @csrf
+                            @method('PUT')
+                            
+                            <div class="mb-3">
+                                <label for="title" class="form-label">Project Title</label>
+                                <input type="text" class="form-control @error('title') is-invalid @enderror" 
+                                       id="title" name="title" value="{{ old('title', $finalProject->title) }}" required>
+                                @error('title')
+                                    <div class="invalid-feedback">{{ $message }}</div>
+                                @enderror
+                            </div>
+
+                            <div class="mb-3">
+                                <label for="description" class="form-label">Project Description</label>
+                                <textarea class="form-control @error('description') is-invalid @enderror" 
+                                          id="description" name="description" rows="6" required>{{ old('description', $finalProject->description) }}</textarea>
+                                @error('description')
+                                    <div class="invalid-feedback">{{ $message }}</div>
+                                @enderror
+                            </div>
+
+                            <div class="mb-3">
+                                <label for="deadline" class="form-label">Submission Deadline</label>
+                                <input type="datetime-local" class="form-control @error('deadline') is-invalid @enderror" 
+                                       id="deadline" name="deadline" value="{{ old('deadline', $finalProject->deadline->format('Y-m-d\TH:i')) }}" required>
+                                @error('deadline')
+                                    <div class="invalid-feedback">{{ $message }}</div>
+                                @enderror
+                            </div>
+
+                            @if($finalProject->attachments && count($finalProject->attachments) > 0)
+                                <div class="mb-3">
+                                    <label class="form-label">Current Files:</label>
+                                    <div class="list-group mb-3">
+                                        @foreach($finalProject->attachments as $index => $attachment)
+                                            <div class="list-group-item d-flex justify-content-between align-items-center">
+                                                <div>
+                                                    <i class="bi bi-file-earmark me-2"></i>
+                                                    {{ $attachment['name'] }}
+                                                    <small class="text-muted">({{ number_format($attachment['size'] / 1024, 2) }} KB)</small>
+                                                </div>
+                                                <button type="button" class="btn btn-sm btn-outline-danger" onclick="removeAttachment({{ $index }})">
+                                                    Remove
+                                                </button>
+                                            </div>
+                                        @endforeach
+                                    </div>
+                                </div>
+                            @endif
+
+                            <div class="mb-3">
+                                <label for="attachments" class="form-label">Add New Files (Optional)</label>
+                                <input type="file" class="form-control @error('attachments.*') is-invalid @enderror" 
+                                       id="attachments" name="attachments[]" multiple>
+                                @error('attachments.*')
+                                    <div class="invalid-feedback">{{ $message }}</div>
+                                @enderror
+                                <div class="form-text">Upload additional files. Max 10MB per file.</div>
+                            </div>
+
+                            <div class="mb-3">
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" id="is_active" name="is_active" value="1" 
+                                           {{ old('is_active', $finalProject->is_active) ? 'checked' : '' }}>
+                                    <label class="form-check-label" for="is_active">
+                                        Project is active and available for submission
+                                    </label>
+                                </div>
+                            </div>
+
+                            <div class="d-flex justify-content-between">
+                                <a href="{{ route('final-projects.show', [$finalProject->course->slug, $finalProject->id]) }}" class="btn btn-secondary">
+                                    <i class="bi bi-arrow-left me-2"></i>Cancel
+                                </a>
+                                <button type="submit" class="btn btn-primary">
+                                    <i class="bi bi-check me-2"></i>Update Project
+                                </button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    @push('scripts')
+    <script>
+        function removeAttachment(index) {
+            if (confirm('Are you sure you want to remove this file?')) {
+                fetch(`{{ route('final-projects.remove-attachment', [$finalProject->course->slug, $finalProject->id]) }}`, {
+                    method: 'DELETE',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content
+                    },
+                    body: JSON.stringify({ attachment_index: index })
+                })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        location.reload();
+                    }
+                })
+                .catch(error => console.error('Error:', error));
+            }
+        }
+    </script>
+    @endpush
+</x-app-layout>
+9. resources/views/final-projects/submissions.blade.php
+php<x-app-layout>
+    <x-slot name="title">{{ $finalProject->title }} - Submissions - {{ config('app.name') }}</x-slot>
+
+    <div class="container py-4">
+        <div class="row">
+            <div class="col-12">
+                <div class="card">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <h4 class="mb-0">Submissions for: {{ $finalProject->title }}</h4>
+                        <a href="{{ route('final-projects.show', [$finalProject->course->slug, $finalProject->id]) }}" class="btn btn-outline-secondary">
+                            <i class="bi bi-arrow-left me-2"></i>Back to Project
+                        </a>
+                    </div>
+                    <div class="card-body">
+                        @if($finalProject->submissions->count() > 0)
+                            <div class="row mb-3">
+                                <div class="col-md-3">
+                                    <div class="card bg-primary text-white">
+                                        <div class="card-body text-center">
+                                            <h3>{{ $finalProject->submissions->count() }}</h3>
+                                            <small>Total Submissions</small>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="col-md-3">
+                                    <div class="card bg-success text-white">
+                                        <div class="card-body text-center">
+                                            <h3>{{ $finalProject->submissions->where('status', 'graded')->count() }}</h3>
+                                            <small>Graded</small>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="col-md-3">
+                                    <div class="card bg-warning text-white">
+                                        <div class="card-body text-center">
+                                            <h3>{{ $finalProject->submissions->where('status', 'pending')->count() }}</h3>
+                                            <small>Pending</small>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="col-md-3">
+                                    <div class="card bg-info text-white">
+                                        <div class="card-body text-center">
+                                            <h3>{{ $finalProject->submissions->where('status', 'graded')->avg('score') ? round($finalProject->submissions->where('status', 'graded')->avg('score'), 1) : 0 }}</h3>
+                                            <small>Average Score</small>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="table-responsive">
+                                <table class="table table-hover">
+                                    <thead>
+                                        <tr>
+                                            <th>Student</th>
+                                            <th>Submitted</th>
+                                            <th>Files</th>
+                                            <th>Status</th>
+                                            <th>Score</th>
+                                            <th>Actions</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        @foreach($finalProject->submissions as $submission)
+                                            <tr>
+                                                <td>
+                                                    <div class="d-flex align-items-center">
+                                                        <img src="{{ $submission->user->avatar_url }}" alt="{{ $submission->user->name }}" class="avatar avatar-sm me-2">
+                                                        <div>
+                                                            <h6 class="mb-0">{{ $submission->user->name }}</h6>
+                                                            <small class="text-muted">{{ $submission->user->email }}</small>
+                                                        </div>
+                                                    </div>
+                                                </td>
+                                                <td>
+                                                    {{ $submission->created_at->format('M d, Y H:i') }}
+                                                    @if($submission->created_at->gt($finalProject->deadline))
+                                                        <span class="badge bg-danger ms-1">Late</span>
+                                                    @endif
+                                                </td>
+                                                <td>
+                                                    <span class="badge bg-secondary">{{ count($submission->attachments) }} files</span>
+                                                </td>
+                                                <td>
+                                                    <span class="badge bg-{{ $submission->status === 'graded' ? 'success' : 'warning' }}">
+                                                        {{ ucfirst($submission->status) }}
+                                                    </span>
+                                                </td>
+                                                <td>
+                                                    @if($submission->status === 'graded')
+                                                        <span class="fw-bold">{{ $submission->score }}/100</span>
+                                                    @else
+                                                        -
+                                                    @endif
+                                                </td>
+                                                <td>
+                                                    <button class="btn btn-sm btn-primary" data-bs-toggle="modal" data-bs-target="#submissionModal{{ $submission->id }}">
+                                                        View & Grade
+                                                    </button>
+                                                </td>
+                                            </tr>
+                                        @endforeach
+                                    </tbody>
+                                </table>
+                            </div>
+                        @else
+                            <div class="text-center py-5">
+                                <i class="bi bi-inbox display-1 text-muted"></i>
+                                <h4 class="text-muted mt-3">No submissions yet</h4>
+                                <p class="text-muted">Students haven't submitted their projects yet.</p>
+                            </div>
+                        @endif
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    @foreach($finalProject->submissions as $submission)
+        <div class="modal fade" id="submissionModal{{ $submission->id }}" tabindex="-1">
+            <div class="modal-dialog modal-lg">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h5 class="modal-title">{{ $submission->user->name }}'s Submission</h5>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                    </div>
+                    <div class="modal-body">
+                        <div class="mb-3">
+                            <strong>Submitted:</strong> {{ $submission->created_at->format('M d, Y \a\t H:i') }}
+                            @if($submission->created_at->gt($finalProject->deadline))
+                                <span class="badge bg-danger ms-2">Late Submission</span>
+                            @endif
+                        </div>
+
+                        @if($submission->notes)
+                            <div class="mb-3">
+                                <strong>Student Notes:</strong>
+                                <div class="p-2 bg-light rounded">{{ $submission->notes }}</div>
+                            </div>
+                        @endif
+
+                        <div class="mb-3">
+                            <strong>Submitted Files:</strong>
+                            <div class="list-group mt-2">
+                                @foreach($submission->attachments as $attachment)
+                                    <div class="list-group-item d-flex justify-content-between align-items-center">
+                                        <div>
+                                            <i class="bi bi-file-earmark me-2"></i>
+                                            {{ $attachment['name'] }}
+                                            <small class="text-muted">({{ number_format($attachment['size'] / 1024, 2) }} KB)</small>
+                                        </div>
+                                        <a href="{{ asset('storage/' . $attachment['path']) }}" target="_blank" class="btn btn-sm btn-outline-primary">
+                                            Download
+                                        </a>
+                                    </div>
+                                @endforeach
+                            </div>
+                        </div>
+
+                        @if($submission->status === 'graded')
+                            <div class="alert alert-success">
+                                <h6><i class="bi bi-check-circle me-2"></i>Already Graded</h6>
+                                <p class="mb-1"><strong>Score:</strong> {{ $submission->score }}/100</p>
+                                @if($submission->feedback)
+                                    <p class="mb-1"><strong>Feedback:</strong> {{ $submission->feedback }}</p>
+                                @endif
+                                <small class="text-muted">Graded on {{ $submission->graded_at->format('M d, Y') }}</small>
+                            </div>
+                        @endif
+
+                        <form action="{{ route('final-projects.grade', [$finalProject->course->slug, $finalProject->id, $submission->id]) }}" method="POST">
+                            @csrf
+                            <div class="row mb-3">
+                                <div class="col-md-6">
+                                    <label for="score{{ $submission->id }}" class="form-label">Score (0-100)</label>
+                                    <input type="number" class="form-control" id="score{{ $submission->id }}" name="score" 
+                                           value="{{ $submission->score }}" min="0" max="100" required>
+                                </div>
+                            </div>
+                            <div class="mb-3">
+                                <label for="feedback{{ $submission->id }}" class="form-label">Feedback</label>
+                                <textarea class="form-control" id="feedback{{ $submission->id }}" name="feedback" rows="3">{{ $submission->feedback }}</textarea>
+                            </div>
+                            <button type="submit" class="btn btn-success">
+                                <i class="bi bi-check-circle me-2"></i>{{ $submission->status === 'graded' ? 'Update Grade' : 'Grade Submission' }}
+                            </button>
+                        </form>
+                    </div>
+                </div>
+            </div>
+        </div>
+    @endforeach
+</x-app-layout>
+Sekarang semua file sudah lengkap. Jangan lupa untuk menjalankan migration dan menambahkan route yang sudah saya berikan sebelumnya di routes/web.php
